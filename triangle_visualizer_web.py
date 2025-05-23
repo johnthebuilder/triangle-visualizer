@@ -570,5 +570,5 @@ def main():
             zero_count = sum(np.sum(row == 0) for row in triangle)
             st.metric("Zero Values", zero_count)
 
-if __name__ == "__main__":
-    main()
+# Run the main app
+main()
