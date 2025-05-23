@@ -1,63 +1,13 @@
-def parse_csv_robust(uploaded_file):
-    """
-    Robust CSV parser that handles multiple formats:
-    - Headers or no headers
-    - Comma-separated or line-separated
-    - Mixed whitespace
-    - Various delimiters
-    """
-    try:
-        # Read the raw content
-        content = uploaded_file.read().decode('utf-8')
-        lines = [line.strip() for line in content.split('\n') if line.strip()]
-        
-        numbers = []
-        
-        # Try different parsing strategies
-        for line in lines:
-            # Skip obvious header lines
-            if any(char.isalpha() for char in line) and not line.replace(',', '').replace('.', '').replace('-', '').isdigit():
-                continue
-            
-            # Try comma-separated values first
-            if ',' in line:
-                parts = [part.strip() for part in line.split(',')]
-                for part in parts:
-                    if part and part.replace('.', '').replace('-', '').isdigit():
-                        try:
-                            numbers.append(int(float(part)))
-                        except ValueError:
-                            continue
-            # Try space-separated values
-            elif ' ' in line:
-                parts = line.split()
-                for part in parts:
-                    if part.replace('.', '').replace('-', '').isdigit():
-                        try:
-                            numbers.append(int(float(part)))
-                        except ValueError:
-                            continue
-            # Try single number per line
-            else:
-                if line.replace('.', '').replace('-', '').isdigit():
-                    try:
-                        numbers.append(int(float(line)))
-                    except ValueError:
-                        continue
-        
-        return numbers if numbers else None
-        
-    except Exception:
-        return None#!/usr/bin/env python3
-"""
-Recursive Difference Triangle Visualization Tool
-A mathematical analysis tool for studying numerical sequences through recursive difference patterns.
-
-This application computes triangular arrangements of absolute differences between consecutive 
-terms in numerical sequences, revealing structural properties and convergence behaviors.
-"""
-
 import streamlit as st
+
+# Configure page - MUST be absolute first command
+st.set_page_config(
+    page_title="Triangle Visualizer",
+    page_icon="🔺",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -67,13 +17,13 @@ import io
 import base64
 import pandas as pd
 
-# Configure page - MUST be first Streamlit command
-st.set_page_config(
-    page_title="Triangle Visualizer",
-    page_icon="🔺",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+"""
+Recursive Difference Triangle Visualization Tool
+A mathematical analysis tool for studying numerical sequences through recursive difference patterns.
+
+This application computes triangular arrangements of absolute differences between consecutive 
+terms in numerical sequences, revealing structural properties and convergence behaviors.
+"""
 
 # Custom CSS for better styling
 st.markdown("""
@@ -167,6 +117,58 @@ def compute_triangle(sequence):
         triangle.append(new_row)
     
     return triangle
+
+def parse_csv_robust(uploaded_file):
+    """
+    Robust CSV parser that handles multiple formats:
+    - Headers or no headers
+    - Comma-separated or line-separated
+    - Mixed whitespace
+    - Various delimiters
+    """
+    try:
+        # Read the raw content
+        content = uploaded_file.read().decode('utf-8')
+        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        
+        numbers = []
+        
+        # Try different parsing strategies
+        for line in lines:
+            # Skip obvious header lines
+            if any(char.isalpha() for char in line) and not line.replace(',', '').replace('.', '').replace('-', '').isdigit():
+                continue
+            
+            # Try comma-separated values first
+            if ',' in line:
+                parts = [part.strip() for part in line.split(',')]
+                for part in parts:
+                    if part and part.replace('.', '').replace('-', '').isdigit():
+                        try:
+                            numbers.append(int(float(part)))
+                        except ValueError:
+                            continue
+            # Try space-separated values
+            elif ' ' in line:
+                parts = line.split()
+                for part in parts:
+                    if part.replace('.', '').replace('-', '').isdigit():
+                        try:
+                            numbers.append(int(float(part)))
+                        except ValueError:
+                            continue
+            # Try single number per line
+            else:
+                if line.replace('.', '').replace('-', '').isdigit():
+                    try:
+                        numbers.append(int(float(line)))
+                    except ValueError:
+                        continue
+        
+        return numbers if numbers else None
+        
+    except Exception:
+        return None
 
 def create_detailed_plot(triangle, sequence_name, max_terms, figsize_multiplier=1.0):
     """Create detailed cell-by-cell visualization with zoom support"""
@@ -434,10 +436,6 @@ def main():
         zoom_text = f"{'Zoomed in' if zoom_level > 1.0 else 'Zoomed out'} to {zoom_level:.1f}x"
         st.sidebar.info(zoom_text)
     
-    # CSV upload
-    st.sidebar.header("📁 Custom Sequence")
-    uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=['csv'])
-    
     # Info section
     with st.sidebar.expander("ℹ️ How it works"):
         st.write("""
@@ -449,9 +447,31 @@ def main():
         
         **Colors:**
         - 🔴 Red: Other values
-        - 🔵 Blue: 2s (often form patterns)
-        - ⚫ Black: 0s (where differences cancel)
+        - 🔵 Blue: 2s
+        - ⚫ Black: 0s
         """)
+    
+    # CSV upload with detailed format info
+    st.sidebar.header("📁 Custom Sequence")
+    st.sidebar.markdown("""
+    **Supported CSV formats:**
+    - One number per line
+    - Comma-separated values
+    - With or without headers
+    - Mixed whitespace handling
+    
+    **Example formats:**
+    ```
+    1,2,3,4,5
+    ```
+    ```
+    Number
+    1
+    2
+    3
+    ```
+    """)
+    uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=['csv', 'txt'])
     
     # Main content area
     col1, col2 = st.columns([2, 1])
