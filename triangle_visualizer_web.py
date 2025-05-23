@@ -1,3 +1,49 @@
+def parse_csv_robust(uploaded_file):
+   
+    try:
+        # Read the raw content
+        content = uploaded_file.read().decode('utf-8')
+        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        
+        numbers = []
+        
+        # Try different parsing strategies
+        for line in lines:
+            # Skip obvious header lines
+            if any(char.isalpha() for char in line) and not line.replace(',', '').replace('.', '').replace('-', '').isdigit():
+                continue
+            
+            # Try comma-separated values first
+            if ',' in line:
+                parts = [part.strip() for part in line.split(',')]
+                for part in parts:
+                    if part and part.replace('.', '').replace('-', '').isdigit():
+                        try:
+                            numbers.append(int(float(part)))
+                        except ValueError:
+                            continue
+            # Try space-separated values
+            elif ' ' in line:
+                parts = line.split()
+                for part in parts:
+                    if part.replace('.', '').replace('-', '').isdigit():
+                        try:
+                            numbers.append(int(float(part)))
+                        except ValueError:
+                            continue
+            # Try single number per line
+            else:
+                if line.replace('.', '').replace('-', '').isdigit():
+                    try:
+                        numbers.append(int(float(line)))
+                    except ValueError:
+                        continue
+        
+        return numbers if numbers else None
+        
+    except Exception:
+        return None#!/usr/bin/env python3
+
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -326,14 +372,15 @@ def main():
         st.header("📊 About This Tool")
         st.markdown("""
         <div class="info-box">
-        <h4>What does this show?</h4>
-        <p>This visualization reveals hidden patterns in number sequences by repeatedly calculating differences between consecutive numbers.</p>
+        <h4>Mathematical Purpose</h4>
+        <p>This tool analyzes numerical sequences by computing recursive absolute differences, creating triangular patterns that reveal underlying mathematical structures and behaviors in data.</p>
         
-        <h4>What to look for:</h4>
+        <h4>Visual Analysis Guide</h4>
         <ul>
-        <li><strong>Blue squares (2s)</strong> - Often form geometric patterns</li>
-        <li><strong>Black squares (0s)</strong> - Where the sequence "settles"</li>
-        <li><strong>Triangle shape</strong> - How quickly it converges</li>
+        <li><strong>Blue cells (value = 2)</strong> - Indicate specific difference magnitudes</li>
+        <li><strong>Black cells (value = 0)</strong> - Show convergence points in the sequence</li>
+        <li><strong>Red cells</strong> - Represent all other difference values</li>
+        <li><strong>Triangle convergence</strong> - Demonstrates sequence stability properties</li>
         </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -341,14 +388,21 @@ def main():
     with col1:
         # Generate or load sequence
         if uploaded_file is not None:
-            try:
-                df = pd.read_csv(uploaded_file, header=None)
-                sequence = df[0].dropna().astype(int).tolist()[:1000]  # Limit to 1000
-                sequence_name = f"Custom CSV ({len(sequence)} terms)"
+            sequence = parse_csv_robust(uploaded_file)
+            if sequence:
+                sequence = sequence[:1000]  # Limit to 1000 for performance
+                sequence_name = f"Custom Data ({len(sequence)} values)"
                 max_terms = len(sequence)
-                st.success(f"✅ Loaded {len(sequence)} values from CSV")
-            except Exception as e:
-                st.error(f"❌ Error loading CSV: {str(e)}")
+                st.success(f"✅ Successfully parsed {len(sequence)} values from file")
+            else:
+                st.error("❌ Could not parse the uploaded file. Please check the format.")
+                st.info("""
+                **Supported formats:**
+                - `1,2,3,4,5` (comma-separated)
+                - `1 2 3 4 5` (space-separated)
+                - One number per line
+                - Files with headers (automatically skipped)
+                """)
                 sequence = generate_sequence(sequence_type, max_terms)
                 sequence_name = sequence_type
         else:
