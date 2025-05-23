@@ -67,7 +67,7 @@ import io
 import base64
 import pandas as pd
 
-# Configure page
+# Configure page - MUST be first Streamlit command
 st.set_page_config(
     page_title="Triangle Visualizer",
     page_icon="🔺",
