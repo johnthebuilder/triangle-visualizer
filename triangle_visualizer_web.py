@@ -1,21 +1,3 @@
-#!/usr/bin/env python3
-"""
-Interactive Recursive Difference Triangle Visualization Tool - Web Version
-Streamlit Web App
-
-USAGE:
-1. Install: pip install streamlit numpy matplotlib sympy
-2. Run: streamlit run triangle_visualizer_web.py
-3. Opens automatically in your browser
-4. Share the URL with Steve!
-
-FEATURES:
-- All original functionality in a web interface
-- No installation needed for users
-- Works on any device with a browser
-- Easy sharing via URL
-"""
-
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
