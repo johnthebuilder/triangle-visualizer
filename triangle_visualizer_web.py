@@ -15,67 +15,30 @@ from matplotlib.collections import PatchCollection
 import sympy
 import io
 import base64
-import pandas as pd
 
-"""
-Recursive Difference Triangle Visualization Tool
-A mathematical analysis tool for studying numerical sequences through recursive difference patterns.
-
-This application computes triangular arrangements of absolute differences between consecutive 
-terms in numerical sequences, revealing structural properties and convergence behaviors.
-"""
-
-# Custom CSS for better styling
+# Simple CSS for clean styling
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
         color: #1f77b4;
         text-align: center;
-        margin-bottom: 2rem;
-        font-weight: 600;
+        margin-bottom: 1.5rem;
     }
     .info-box {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        padding: 1.5rem;
-        border-radius: 0.75rem;
-        margin: 1rem 0;
-        border: 1px solid #dee2e6;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .info-box h4 {
-        color: #495057;
-        margin-bottom: 1rem;
-        font-size: 1.1rem;
-        font-weight: 600;
-    }
-    .info-box p {
-        color: #6c757d;
-        line-height: 1.6;
-        font-size: 0.95rem;
-        margin-bottom: 1rem;
-    }
-    .info-box ul {
-        color: #6c757d;
-        line-height: 1.6;
-        font-size: 0.95rem;
-    }
-    .info-box li {
-        margin-bottom: 0.5rem;
-    }
-    .stButton > button {
-        border-radius: 0.5rem;
-        border: none;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        font-weight: 500;
-    }
-    .zoom-controls {
         background-color: #f8f9fa;
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 1rem 0;
         border: 1px solid #dee2e6;
+    }
+    .info-box h4 {
+        color: #495057;
+        margin-bottom: 0.5rem;
+    }
+    .info-box p, .info-box ul {
+        color: #6c757d;
+        font-size: 0.9rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -171,38 +134,28 @@ def parse_csv_robust(uploaded_file):
         return None
 
 def create_detailed_plot(triangle, sequence_name, max_terms, figsize_multiplier=1.0):
-    """Create detailed cell-by-cell visualization with zoom support"""
+    """Create detailed cell-by-cell visualization"""
     if not triangle:
         return None
     
     max_width = len(triangle[0])
     max_height = len(triangle)
     
-    # Adaptive sizing with zoom multiplier
-    base_cell_size = 0.8 if max_width <= 50 else 0.5 if max_width <= 100 else 0.3
-    cell_size = base_cell_size * figsize_multiplier
-    
-    base_font_size = 10 if max_width <= 50 else 8 if max_width <= 100 else 6
-    font_size = max(4, int(base_font_size * figsize_multiplier))
-    
+    # Simplified sizing
+    cell_size = (0.8 if max_width <= 50 else 0.5 if max_width <= 100 else 0.3) * figsize_multiplier
+    font_size = max(4, int((10 if max_width <= 50 else 6) * figsize_multiplier))
     show_text = font_size >= 5 and cell_size >= 0.4
     
-    # Create figure with better proportions
-    fig_width = max(12, min(20, max_width * cell_size / 2))
-    fig_height = max(8, min(16, max_height * cell_size / 2))
+    # Create figure
+    fig_width = max(10, min(16, max_width * cell_size / 2))
+    fig_height = max(6, min(12, max_height * cell_size / 2))
     fig, ax = plt.subplots(figsize=(fig_width * figsize_multiplier, fig_height * figsize_multiplier))
     
-    # Set high DPI for crisp rendering
-    fig.dpi = 100
     ax.set_aspect('equal')
     ax.axis('off')
     
-    # Enhanced color scheme
-    colors = {
-        0: {'bg': '#2c3e50', 'text': '#ffffff'},  # Dark blue-gray for zeros
-        2: {'bg': '#3498db', 'text': '#ffffff'},  # Bright blue for twos
-        'default': {'bg': '#e74c3c', 'text': '#ffffff'}  # Vibrant red for others
-    }
+    # Simple colors
+    colors = {0: '#2c3e50', 2: '#3498db', 'default': '#e74c3c'}
     
     rectangles_data = []
     texts_data = []
@@ -217,89 +170,70 @@ def create_detailed_plot(triangle, sequence_name, max_terms, figsize_multiplier=
         
         for col_idx, value in enumerate(row):
             x_pos = start_x + col_idx * cell_size
+            color = colors.get(value, colors['default'])
             
-            # Get enhanced colors
-            color_info = colors.get(value, colors['default'])
-            
-            rectangles_data.append((x_pos, y_pos, cell_size, color_info['bg']))
+            rectangles_data.append((x_pos, y_pos, cell_size, color))
             
             if show_text:
-                texts_data.append((x_pos + cell_size/2, y_pos + cell_size/2, 
-                                str(value), color_info['text'], font_size))
+                texts_data.append((x_pos + cell_size/2, y_pos + cell_size/2, str(value), 'white', font_size))
     
-    # Create rectangles with better styling
+    # Create rectangles
     rect_patches = []
     rect_colors = []
     
     for x, y, size, color in rectangles_data:
-        rect = Rectangle((x, y), size, size, linewidth=0.5)
+        rect = Rectangle((x, y), size, size, linewidth=0.3)
         rect_patches.append(rect)
         rect_colors.append(color)
     
     if rect_patches:
         collection = PatchCollection(rect_patches, facecolors=rect_colors, 
-                                   edgecolors='#34495e', linewidths=0.3, alpha=0.9)
+                                   edgecolors='gray', linewidths=0.2)
         ax.add_collection(collection)
     
-    # Add text with better styling
+    # Add text
     if show_text:
         for x, y, text, color, size in texts_data:
             ax.text(x, y, text, ha='center', va='center', 
-                   fontsize=size, color=color, weight='bold',
-                   fontfamily='monospace')
+                   fontsize=size, color=color, weight='bold')
     
-    # Set limits with proper padding
-    padding = cell_size * 1.5
+    # Set limits
+    padding = cell_size
     ax.set_xlim(-padding, max_width * cell_size + padding)
     ax.set_ylim(-padding, max_height * cell_size + padding)
     
-    # Enhanced title
-    title_size = max(12, min(18, int(16 * figsize_multiplier)))
-    ax.set_title(f'Detailed View - {sequence_name} ({max_terms} terms)\n'
-                f'Blue: 2s  •  Dark Gray: 0s  •  Red: Other Values', 
-                fontsize=title_size, pad=20, color='#2c3e50', weight='bold')
-    
-    # Add subtle grid for better readability if zoomed in
-    if figsize_multiplier > 1.2 and max_width <= 100:
-        ax.grid(True, alpha=0.1, color='#7f8c8d', linewidth=0.5)
+    # Simple title
+    ax.set_title(f'{sequence_name} ({max_terms} terms) - Blue: 2s, Gray: 0s, Red: Others', 
+                fontsize=max(10, int(12 * figsize_multiplier)), pad=15)
     
     plt.tight_layout()
     return fig
 
 def create_structure_plot(triangle, sequence_name, max_terms, figsize_multiplier=1.0):
-    """Create structure view with color-coded squares and zoom support"""
+    """Create structure view with color-coded squares"""
     if not triangle:
         return None
     
     max_width = len(triangle[0])
     max_height = len(triangle)
     
-    # Adaptive sizing with zoom
-    base_cell_size = 0.8 if max_width <= 500 else 0.4 if max_width <= 1000 else 0.2
-    cell_size = base_cell_size * figsize_multiplier
+    # Simple sizing
+    cell_size = (0.6 if max_width <= 500 else 0.3 if max_width <= 1000 else 0.15) * figsize_multiplier
     
-    # Create figure with better proportions
-    fig_width = max(14, min(24, max_width * cell_size / 8))
-    fig_height = max(10, min(20, max_height * cell_size / 8))
+    # Create figure
+    fig_width = max(12, min(20, max_width * cell_size / 6))
+    fig_height = max(8, min(16, max_height * cell_size / 6))
     fig, ax = plt.subplots(figsize=(fig_width * figsize_multiplier, fig_height * figsize_multiplier))
     
-    # Enhanced styling
-    fig.dpi = 100
     ax.set_aspect('equal')
     ax.axis('off')
-    ax.set_facecolor('#f8f9fa')
     
-    # Enhanced color scheme
-    colors = {
-        0: '#2c3e50',    # Dark blue-gray for zeros
-        2: '#3498db',    # Bright blue for twos  
-        'default': '#e74c3c'  # Vibrant red for others
-    }
+    # Simple colors
+    colors = {0: '#2c3e50', 2: '#3498db', 'default': '#e74c3c'}
     
-    # Collect rectangles by color for efficient rendering
-    red_rects = []
-    blue_rects = []
-    black_rects = []
+    # Collect rectangles
+    all_patches = []
+    all_colors = []
     
     for row_idx, row in enumerate(triangle):
         if len(row) == 0:
@@ -311,64 +245,24 @@ def create_structure_plot(triangle, sequence_name, max_terms, figsize_multiplier
         
         for col_idx, value in enumerate(row):
             x_pos = start_x + col_idx * cell_size
-            rect_data = (x_pos, y_pos, cell_size, cell_size)
+            color = colors.get(value, colors['default'])
             
-            if value == 0:
-                black_rects.append(rect_data)
-            elif value == 2:
-                blue_rects.append(rect_data)
-            else:
-                red_rects.append(rect_data)
-    
-    # Create all patches with enhanced styling
-    all_patches = []
-    all_colors = []
-    
-    for x, y, w, h in red_rects:
-        rect = Rectangle((x, y), w, h, linewidth=0.2)
-        all_patches.append(rect)
-        all_colors.append(colors['default'])
-    
-    for x, y, w, h in blue_rects:
-        rect = Rectangle((x, y), w, h, linewidth=0.2)
-        all_patches.append(rect)
-        all_colors.append(colors[2])
-    
-    for x, y, w, h in black_rects:
-        rect = Rectangle((x, y), w, h, linewidth=0.2)
-        all_patches.append(rect)
-        all_colors.append(colors[0])
+            rect = Rectangle((x_pos, y_pos), cell_size, cell_size, linewidth=0.1)
+            all_patches.append(rect)
+            all_colors.append(color)
     
     if all_patches:
-        collection = PatchCollection(all_patches, facecolors=all_colors, 
-                                   edgecolors='#34495e', linewidths=0.1, alpha=0.9)
+        collection = PatchCollection(all_patches, facecolors=all_colors, edgecolors='none')
         ax.add_collection(collection)
     
-    # Set limits with proper padding
-    padding = cell_size * 2
+    # Set limits
+    padding = cell_size
     ax.set_xlim(-padding, max_width * cell_size + padding)
     ax.set_ylim(-padding, max_height * cell_size + padding)
     
-    # Enhanced title and legend
-    title_size = max(12, min(18, int(16 * figsize_multiplier)))
-    ax.set_title(f'Structure View - {sequence_name} ({max_terms} terms)\n'
-                f'Blue: 2s  •  Dark Gray: 0s  •  Red: Other Values', 
-                fontsize=title_size, pad=25, color='#2c3e50', weight='bold')
-    
-    # Enhanced legend
-    from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], marker='s', color='w', markerfacecolor=colors['default'], 
-               markersize=12, label='Other Values', markeredgecolor='#34495e'),
-        Line2D([0], [0], marker='s', color='w', markerfacecolor=colors[2], 
-               markersize=12, label='2s', markeredgecolor='#34495e'),
-        Line2D([0], [0], marker='s', color='w', markerfacecolor=colors[0], 
-               markersize=12, label='0s', markeredgecolor='#34495e')
-    ]
-    legend = ax.legend(handles=legend_elements, loc='upper right', 
-                      fontsize=max(10, int(12 * figsize_multiplier)),
-                      frameon=True, fancybox=True, shadow=True,
-                      facecolor='white', edgecolor='#dee2e6')
+    # Simple title
+    ax.set_title(f'{sequence_name} ({max_terms} terms) - Blue: 2s, Gray: 0s, Red: Others', 
+                fontsize=max(10, int(12 * figsize_multiplier)), pad=15)
     
     plt.tight_layout()
     return fig
@@ -477,18 +371,17 @@ def main():
     col1, col2 = st.columns([2, 1])
     
     with col2:
-        st.header("📊 Analysis Overview")
+        st.header("📊 About")
         st.markdown("""
         <div class="info-box">
-        <h4>Mathematical Purpose</h4>
-        <p>This tool analyzes numerical sequences by computing recursive absolute differences, creating triangular patterns that reveal underlying mathematical structures and behaviors in data.</p>
+        <h4>What it does</h4>
+        <p>Takes differences between consecutive numbers repeatedly to form a triangle pattern.</p>
         
-        <h4>Visual Analysis Guide</h4>
+        <h4>Colors</h4>
         <ul>
-        <li><strong>Blue cells (value = 2)</strong> - Indicate specific difference magnitudes</li>
-        <li><strong>Black cells (value = 0)</strong> - Show convergence points in the sequence</li>
-        <li><strong>Red cells</strong> - Represent all other difference values</li>
-        <li><strong>Triangle convergence</strong> - Demonstrates sequence stability properties</li>
+        <li><strong>Blue</strong> - Value is 2</li>
+        <li><strong>Gray</strong> - Value is 0</li>
+        <li><strong>Red</strong> - All other values</li>
         </ul>
         </div>
         """, unsafe_allow_html=True)
