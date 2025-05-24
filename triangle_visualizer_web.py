@@ -134,36 +134,47 @@ def parse_csv_robust(uploaded_file):
         return None
 
 def create_detailed_plot(triangle, sequence_name, max_terms):
-    """Create detailed cell-by-cell visualization with safety limits"""
+    """Create detailed cell-by-cell visualization with warnings for large sequences"""
     if not triangle:
         return None
     
     max_width = len(triangle[0])
     max_height = len(triangle)
     
-    # Safety check for large sequences
+    # Calculate total cells for warning
     total_cells = sum(len(row) for row in triangle)
-    if total_cells > 50000:  # Prevent crashes
-        st.error(f"⚠️ Sequence too large ({total_cells:,} cells). Please use ≤300 terms to prevent crashes.")
-        return None
     
-    # Simplified sizing based on width
+    # Show warning for very large triangles but still render
+    if total_cells > 100000:
+        st.warning(f"⚠️ Large triangle ({total_cells:,} cells) - rendering may take time and use significant memory.")
+    elif total_cells > 50000:
+        st.info(f"ℹ️ Medium-large triangle ({total_cells:,} cells) - please wait for rendering...")
+    
+    # Adaptive sizing based on width
     if max_width <= 50:
         cell_size = 0.8
         font_size = 10
         show_text = True
-    elif max_width <= 150:
+    elif max_width <= 100:
+        cell_size = 0.6
+        font_size = 8
+        show_text = True
+    elif max_width <= 200:
         cell_size = 0.4
         font_size = 6
         show_text = True
-    else:
+    elif max_width <= 400:
         cell_size = 0.2
         font_size = 4
+        show_text = max_width <= 300  # Hide text for very large triangles
+    else:
+        cell_size = 0.1
+        font_size = 3
         show_text = False  # Too small to read
     
-    # Create figure with reasonable size
-    fig_width = min(16, max(8, max_width * cell_size / 2))
-    fig_height = min(12, max(6, max_height * cell_size / 2))
+    # Create figure with reasonable size limits
+    fig_width = min(20, max(8, max_width * cell_size / 2))
+    fig_height = min(16, max(6, max_height * cell_size / 2))
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     
     ax.set_aspect('equal')
@@ -188,7 +199,7 @@ def create_detailed_plot(triangle, sequence_name, max_terms):
             x_pos = start_x + col_idx * cell_size
             color = colors.get(value, colors['default'])
             
-            rect = Rectangle((x_pos, y_pos), cell_size, cell_size, linewidth=0.2)
+            rect = Rectangle((x_pos, y_pos), cell_size, cell_size, linewidth=max(0.1, cell_size/10))
             rect_patches.append(rect)
             rect_colors.append(color)
             
@@ -201,17 +212,22 @@ def create_detailed_plot(triangle, sequence_name, max_terms):
     # Add all rectangles at once
     if rect_patches:
         collection = PatchCollection(rect_patches, facecolors=rect_colors, 
-                                   edgecolors='gray', linewidths=0.1)
+                                   edgecolors='gray', linewidths=max(0.05, cell_size/20))
         ax.add_collection(collection)
     
     # Set limits
-    padding = cell_size
+    padding = max(cell_size, 0.5)
     ax.set_xlim(-padding, max_width * cell_size + padding)
     ax.set_ylim(-padding, max_height * cell_size + padding)
     
     # Simple title
-    ax.set_title(f'{sequence_name} ({max_terms} terms) - Blue: 2s, Gray: 0s, Red: Others', 
-                fontsize=12, pad=15)
+    title_text = f'{sequence_name} ({max_terms} terms)'
+    if not show_text:
+        title_text += ' - Numbers hidden (too small to display)'
+    else:
+        title_text += ' - Blue: 2s, Gray: 0s, Red: Others'
+    
+    ax.set_title(title_text, fontsize=min(14, max(8, 100/max_width)), pad=15)
     
     plt.tight_layout()
     return fig
