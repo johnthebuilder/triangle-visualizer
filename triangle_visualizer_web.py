@@ -133,23 +133,38 @@ def parse_csv_robust(uploaded_file):
     except Exception:
         return None
 
-def create_detailed_plot(triangle, sequence_name, max_terms, figsize_multiplier=1.0):
-    """Create detailed cell-by-cell visualization"""
+def create_detailed_plot(triangle, sequence_name, max_terms):
+    """Create detailed cell-by-cell visualization with safety limits"""
     if not triangle:
         return None
     
     max_width = len(triangle[0])
     max_height = len(triangle)
     
-    # Simplified sizing
-    cell_size = (0.8 if max_width <= 50 else 0.5 if max_width <= 100 else 0.3) * figsize_multiplier
-    font_size = max(4, int((10 if max_width <= 50 else 6) * figsize_multiplier))
-    show_text = font_size >= 5 and cell_size >= 0.4
+    # Safety check for large sequences
+    total_cells = sum(len(row) for row in triangle)
+    if total_cells > 50000:  # Prevent crashes
+        st.error(f"⚠️ Sequence too large ({total_cells:,} cells). Please use ≤300 terms to prevent crashes.")
+        return None
     
-    # Create figure
-    fig_width = max(10, min(16, max_width * cell_size / 2))
-    fig_height = max(6, min(12, max_height * cell_size / 2))
-    fig, ax = plt.subplots(figsize=(fig_width * figsize_multiplier, fig_height * figsize_multiplier))
+    # Simplified sizing based on width
+    if max_width <= 50:
+        cell_size = 0.8
+        font_size = 10
+        show_text = True
+    elif max_width <= 150:
+        cell_size = 0.4
+        font_size = 6
+        show_text = True
+    else:
+        cell_size = 0.2
+        font_size = 4
+        show_text = False  # Too small to read
+    
+    # Create figure with reasonable size
+    fig_width = min(16, max(8, max_width * cell_size / 2))
+    fig_height = min(12, max(6, max_height * cell_size / 2))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     
     ax.set_aspect('equal')
     ax.axis('off')
@@ -157,8 +172,9 @@ def create_detailed_plot(triangle, sequence_name, max_terms, figsize_multiplier=
     # Simple colors
     colors = {0: '#2c3e50', 2: '#3498db', 'default': '#e74c3c'}
     
-    rectangles_data = []
-    texts_data = []
+    # Build rectangles and text
+    rect_patches = []
+    rect_colors = []
     
     for row_idx, row in enumerate(triangle):
         if len(row) == 0:
@@ -172,30 +188,21 @@ def create_detailed_plot(triangle, sequence_name, max_terms, figsize_multiplier=
             x_pos = start_x + col_idx * cell_size
             color = colors.get(value, colors['default'])
             
-            rectangles_data.append((x_pos, y_pos, cell_size, color))
+            rect = Rectangle((x_pos, y_pos), cell_size, cell_size, linewidth=0.2)
+            rect_patches.append(rect)
+            rect_colors.append(color)
             
+            # Add text if readable
             if show_text:
-                texts_data.append((x_pos + cell_size/2, y_pos + cell_size/2, str(value), 'white', font_size))
+                ax.text(x_pos + cell_size/2, y_pos + cell_size/2, str(value), 
+                       ha='center', va='center', fontsize=font_size, 
+                       color='white', weight='bold')
     
-    # Create rectangles
-    rect_patches = []
-    rect_colors = []
-    
-    for x, y, size, color in rectangles_data:
-        rect = Rectangle((x, y), size, size, linewidth=0.3)
-        rect_patches.append(rect)
-        rect_colors.append(color)
-    
+    # Add all rectangles at once
     if rect_patches:
         collection = PatchCollection(rect_patches, facecolors=rect_colors, 
-                                   edgecolors='gray', linewidths=0.2)
+                                   edgecolors='gray', linewidths=0.1)
         ax.add_collection(collection)
-    
-    # Add text
-    if show_text:
-        for x, y, text, color, size in texts_data:
-            ax.text(x, y, text, ha='center', va='center', 
-                   fontsize=size, color=color, weight='bold')
     
     # Set limits
     padding = cell_size
@@ -204,7 +211,7 @@ def create_detailed_plot(triangle, sequence_name, max_terms, figsize_multiplier=
     
     # Simple title
     ax.set_title(f'{sequence_name} ({max_terms} terms) - Blue: 2s, Gray: 0s, Red: Others', 
-                fontsize=max(10, int(12 * figsize_multiplier)), pad=15)
+                fontsize=12, pad=15)
     
     plt.tight_layout()
     return fig
@@ -309,33 +316,15 @@ def main():
     else:
         st.sidebar.warning("⚠️ Structure view recommended")
     
-    # View mode and zoom controls
-    view_mode = st.sidebar.radio(
-        "View Mode:",
-        ["Detailed View", "Structure View"]
-    )
-    
-    # Zoom controls
-    st.sidebar.header("🔍 Display Options")
-    zoom_level = st.sidebar.slider(
-        "Zoom Level:",
-        min_value=0.5,
-        max_value=3.0,
-        value=1.0,
-        step=0.1,
-        help="Adjust the size of the visualization"
-    )
-    
-    if zoom_level != 1.0:
-        zoom_text = f"{'Zoomed in' if zoom_level > 1.0 else 'Zoomed out'} to {zoom_level:.1f}x"
-        st.sidebar.info(zoom_text)
+    # View mode (removed structure view and zoom)
+    view_mode = "Detailed View"  # Only one view now
     
     # Info section
     with st.sidebar.expander("ℹ️ How it works"):
         st.write("""
         **Recursive Difference Triangle:**
         1. Start with your sequence
-        2. Take absolute differences between consecutive numbers
+        2. Take absolute differences between number sequences
         3. Repeat until you reach a single number
         4. Forms an upside-down triangle
         
