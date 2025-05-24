@@ -241,23 +241,25 @@ def main():
         ["Prime Numbers", "Fibonacci", "Natural Numbers", "Square Numbers", "Triangular Numbers"]
     )
     
-    # Number of terms with crash prevention
+    # Number of terms with warnings but higher limit
     max_terms = st.sidebar.number_input(
         "Number of Terms:",
         min_value=1,
-        max_value=300,  # Reduced max to prevent crashes
+        max_value=1000,  # Increased back to 1000
         value=50,
         step=1,
-        help="Max 300 terms to prevent crashes with large sequences"
+        help="Large sequences may be slow or crash your browser"
     )
     
-    # Recommendations
+    # Dynamic warnings based on size
     if max_terms <= 100:
-        st.sidebar.success("✅ Good size for detailed view")
+        st.sidebar.success("✅ Good size - fast rendering")
     elif max_terms <= 200:
-        st.sidebar.info("ℹ️ Medium size - may be slow")
+        st.sidebar.info("ℹ️ Medium size - should work fine")
+    elif max_terms <= 400:
+        st.sidebar.warning("⚠️ Large size - may be slow to render")
     else:
-        st.sidebar.warning("⚠️ Large size - may crash on complex sequences")
+        st.sidebar.error("🚨 Very large - high risk of browser crash")
     
     # CSV upload with detailed format info (moved above "How it works")
     st.sidebar.header("📁 Custom Sequence")
