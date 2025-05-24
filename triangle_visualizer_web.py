@@ -1,6 +1,5 @@
 import streamlit as st
 
-# Configure page - MUST be absolute first command
 st.set_page_config(
     page_title="Triangle Visualizer",
     page_icon="🔺",
@@ -16,7 +15,6 @@ import sympy
 import io
 import base64
 
-# Simple CSS for clean styling
 st.markdown("""
 <style>
     .main-header {
