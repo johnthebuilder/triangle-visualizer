@@ -216,64 +216,6 @@ def create_detailed_plot(triangle, sequence_name, max_terms):
     plt.tight_layout()
     return fig
 
-def create_structure_plot(triangle, sequence_name, max_terms, figsize_multiplier=1.0):
-    """Create structure view with color-coded squares"""
-    if not triangle:
-        return None
-    
-    max_width = len(triangle[0])
-    max_height = len(triangle)
-    
-    # Simple sizing
-    cell_size = (0.6 if max_width <= 500 else 0.3 if max_width <= 1000 else 0.15) * figsize_multiplier
-    
-    # Create figure
-    fig_width = max(12, min(20, max_width * cell_size / 6))
-    fig_height = max(8, min(16, max_height * cell_size / 6))
-    fig, ax = plt.subplots(figsize=(fig_width * figsize_multiplier, fig_height * figsize_multiplier))
-    
-    ax.set_aspect('equal')
-    ax.axis('off')
-    
-    # Simple colors
-    colors = {0: '#2c3e50', 2: '#3498db', 'default': '#e74c3c'}
-    
-    # Collect rectangles
-    all_patches = []
-    all_colors = []
-    
-    for row_idx, row in enumerate(triangle):
-        if len(row) == 0:
-            continue
-        
-        row_width = len(row)
-        start_x = (max_width - row_width) * cell_size / 2
-        y_pos = (max_height - row_idx - 1) * cell_size
-        
-        for col_idx, value in enumerate(row):
-            x_pos = start_x + col_idx * cell_size
-            color = colors.get(value, colors['default'])
-            
-            rect = Rectangle((x_pos, y_pos), cell_size, cell_size, linewidth=0.1)
-            all_patches.append(rect)
-            all_colors.append(color)
-    
-    if all_patches:
-        collection = PatchCollection(all_patches, facecolors=all_colors, edgecolors='none')
-        ax.add_collection(collection)
-    
-    # Set limits
-    padding = cell_size
-    ax.set_xlim(-padding, max_width * cell_size + padding)
-    ax.set_ylim(-padding, max_height * cell_size + padding)
-    
-    # Simple title
-    ax.set_title(f'{sequence_name} ({max_terms} terms) - Blue: 2s, Gray: 0s, Red: Others', 
-                fontsize=max(10, int(12 * figsize_multiplier)), pad=15)
-    
-    plt.tight_layout()
-    return fig
-
 def get_download_link(fig, filename):
     """Generate download link for the plot"""
     img_buffer = io.BytesIO()
@@ -299,42 +241,25 @@ def main():
         ["Prime Numbers", "Fibonacci", "Natural Numbers", "Square Numbers", "Triangular Numbers"]
     )
     
-    # Number of terms
+    # Number of terms with crash prevention
     max_terms = st.sidebar.number_input(
         "Number of Terms:",
         min_value=1,
-        max_value=1000,
+        max_value=300,  # Reduced max to prevent crashes
         value=50,
-        step=1
+        step=1,
+        help="Max 300 terms to prevent crashes with large sequences"
     )
     
     # Recommendations
     if max_terms <= 100:
-        st.sidebar.success("✅ Perfect for detailed view")
-    elif max_terms <= 300:
-        st.sidebar.info("ℹ️ Good for both views")
+        st.sidebar.success("✅ Good size for detailed view")
+    elif max_terms <= 200:
+        st.sidebar.info("ℹ️ Medium size - may be slow")
     else:
-        st.sidebar.warning("⚠️ Structure view recommended")
+        st.sidebar.warning("⚠️ Large size - may crash on complex sequences")
     
-    # View mode (removed structure view and zoom)
-    view_mode = "Detailed View"  # Only one view now
-    
-    # Info section
-    with st.sidebar.expander("ℹ️ How it works"):
-        st.write("""
-        **Recursive Difference Triangle:**
-        1. Start with your sequence
-        2. Take absolute differences between number sequences
-        3. Repeat until you reach a single number
-        4. Forms an upside-down triangle
-        
-        **Colors:**
-        - 🔴 Red: Other values
-        - 🔵 Blue: 2s
-        - ⚫ Black: 0s
-        """)
-    
-    # CSV upload with detailed format info
+    # CSV upload with detailed format info (moved above "How it works")
     st.sidebar.header("📁 Custom Sequence")
     st.sidebar.markdown("""
     **Supported CSV formats:**
@@ -356,6 +281,21 @@ def main():
     """)
     uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=['csv', 'txt'])
     
+    # Info section
+    with st.sidebar.expander("ℹ️ How it works"):
+        st.write("""
+        **Recursive Difference Triangle:**
+        1. Start with your sequence
+        2. Take absolute differences between number sequences
+        3. Repeat until you reach a single number
+        4. Forms an upside-down triangle
+        
+        **Colors:**
+        - 🔴 Red: Other values
+        - 🔵 Blue: 2s
+        - ⚫ Black: 0s
+        """)
+    
     # Main content area
     col1, col2 = st.columns([2, 1])
     
@@ -364,7 +304,7 @@ def main():
         st.markdown("""
         <div class="info-box">
         <h4>What it does</h4>
-        <p>Takes differences between consecutive numbers repeatedly to form a triangle pattern.</p>
+        <p>Takes differences between number sequences repeatedly to form a triangle pattern.</p>
         
         <h4>Colors</h4>
         <ul>
@@ -412,26 +352,16 @@ def main():
         with st.spinner("🔄 Computing triangle..."):
             triangle = compute_triangle(sequence)
         
-        # Create visualization with zoom
+        # Create visualization (single view only)
         with st.spinner("🎨 Creating visualization..."):
-            if view_mode == "Detailed View":
-                fig = create_detailed_plot(triangle, sequence_name, max_terms, zoom_level)
-            else:
-                fig = create_structure_plot(triangle, sequence_name, max_terms, zoom_level)
+            fig = create_detailed_plot(triangle, sequence_name, max_terms)
         
-        # Display plot with better container
+        # Display plot
         if fig:
-            # Add zoom information
-            if zoom_level != 1.0:
-                zoom_info = f"🔍 **Display:** {zoom_level:.1f}x zoom"
-                if zoom_level > 1.5:
-                    zoom_info += " (High detail - may take longer to render)"
-                st.info(zoom_info)
-            
             st.pyplot(fig, use_container_width=True)
             
             # Download button
-            filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}terms_zoom{zoom_level:.1f}x.png"
+            filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}terms.png"
             st.markdown(get_download_link(fig, filename), unsafe_allow_html=True)
             
             plt.close(fig)  # Clean up memory
