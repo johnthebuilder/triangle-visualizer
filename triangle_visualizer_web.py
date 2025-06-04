@@ -11,11 +11,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.collections import PatchCollection
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend for better memory usage
 import sympy
 import io
 import base64
-from concurrent.futures import ThreadPoolExecutor
-import multiprocessing as mp
+import gc  # Garbage collection
 
 st.markdown("""
 <style>
@@ -40,76 +41,93 @@ st.markdown("""
         color: #6c757d;
         font-size: 0.9rem;
     }
+    .warning-box {
+        background-color: #fff3cd;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        border: 1px solid #ffeeba;
+        color: #856404;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 @st.cache_data
 def generate_sequence(seq_type, n):
-    """Generate a sequence of the specified type - optimized with numpy where possible"""
-    if seq_type == "Prime Numbers":
-        return list(sympy.primerange(2, sympy.prime(n) + 1))[:n]
-    elif seq_type == "Fibonacci":
-        if n <= 0:
-            return []
-        elif n == 1:
-            return [1]
-        elif n == 2:
-            return [1, 1]
-        # Optimized fibonacci using matrix multiplication for large n
-        fib = np.ones(n, dtype=np.int64)
-        for i in range(2, n):
-            fib[i] = fib[i-1] + fib[i-2]
-        return fib.tolist()
-    elif seq_type == "Natural Numbers":
-        return np.arange(1, n + 1, dtype=np.int64).tolist()
-    elif seq_type == "Square Numbers":
-        return (np.arange(1, n + 1, dtype=np.int64) ** 2).tolist()
-    elif seq_type == "Triangular Numbers":
-        arr = np.arange(1, n + 1, dtype=np.int64)
-        return ((arr * (arr + 1)) // 2).tolist()
-    else:
-        return list(range(1, n + 1))
+    """Generate a sequence of the specified type - memory efficient version"""
+    try:
+        if seq_type == "Prime Numbers":
+            return list(sympy.primerange(2, sympy.prime(min(n, 10000)) + 1))[:n]
+        elif seq_type == "Fibonacci":
+            if n <= 0:
+                return []
+            elif n == 1:
+                return [1]
+            elif n == 2:
+                return [1, 1]
+            # Generate fibonacci iteratively to save memory
+            fib = [1, 1]
+            for i in range(2, n):
+                fib.append(fib[-1] + fib[-2])
+            return fib
+        elif seq_type == "Natural Numbers":
+            return list(range(1, n + 1))
+        elif seq_type == "Square Numbers":
+            return [i**2 for i in range(1, n + 1)]
+        elif seq_type == "Triangular Numbers":
+            return [i*(i+1)//2 for i in range(1, n + 1)]
+        else:
+            return list(range(1, n + 1))
+    except MemoryError:
+        st.error("Out of memory generating sequence. Try a smaller number of terms.")
+        return []
 
 @st.cache_data
-def compute_triangle(sequence):
-    """Compute the recursive difference triangle using NumPy - optimized version"""
+def compute_triangle_memory_efficient(sequence, max_rows=None):
+    """Memory-efficient triangle computation with row limit"""
     if not sequence:
         return []
     
-    # Pre-allocate memory for better performance
-    n = len(sequence)
     triangle = []
-    
-    # Use numpy arrays for faster computation
     current = np.array(sequence, dtype=np.int64)
     triangle.append(current.copy())
     
-    for i in range(1, n):
+    # Limit the number of rows to prevent memory issues
+    n_rows = len(sequence) if max_rows is None else min(len(sequence), max_rows)
+    
+    for i in range(1, n_rows):
         if len(current) <= 1:
             break
-        # Vectorized absolute difference
         current = np.abs(np.diff(current))
         triangle.append(current.copy())
+        
+        # Early termination if triangle gets too large
+        total_elements = sum(len(row) for row in triangle)
+        if total_elements > 100000:  # Limit total elements
+            st.warning(f"Triangle truncated at row {i+1} to prevent memory issues")
+            break
     
     return triangle
 
 def parse_csv_robust(uploaded_file):
-    """Optimized CSV parser with numpy for large files"""
+    """Memory-efficient CSV parser"""
     try:
         content = uploaded_file.read().decode('utf-8')
-        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        lines = content.strip().split('\n')
         
         numbers = []
+        max_numbers = 1000  # Limit to prevent memory issues
         
-        for line in lines:
-            # Skip header lines
-            if any(char.isalpha() for char in line) and not line.replace(',', '').replace('.', '').replace('-', '').isdigit():
+        for line in lines[:max_numbers]:  # Process limited lines
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Skip obvious headers
+            if any(c.isalpha() for c in line) and not line.replace(',', '').replace('.', '').replace('-', '').isdigit():
                 continue
             
-            # Parse numbers more efficiently
-            line_numbers = []
-            
-            # Try different delimiters
+            # Try to parse numbers
             for delimiter in [',', ' ', '\t', ';']:
                 if delimiter in line:
                     parts = line.split(delimiter)
@@ -117,27 +135,29 @@ def parse_csv_robust(uploaded_file):
                         part = part.strip()
                         if part and part.replace('.', '').replace('-', '').lstrip('-').isdigit():
                             try:
-                                line_numbers.append(int(float(part)))
-                            except ValueError:
+                                numbers.append(int(float(part)))
+                                if len(numbers) >= max_numbers:
+                                    return numbers
+                            except:
                                 continue
                     break
             else:
                 # Single number per line
                 if line.replace('.', '').replace('-', '').lstrip('-').isdigit():
                     try:
-                        line_numbers.append(int(float(line)))
-                    except ValueError:
+                        numbers.append(int(float(line)))
+                    except:
                         pass
             
-            numbers.extend(line_numbers)
+            if len(numbers) >= max_numbers:
+                break
         
         return numbers if numbers else None
-        
-    except Exception:
+    except:
         return None
 
-def create_optimized_plot(triangle, sequence_name, max_terms, dpi=100, high_quality=False):
-    """Optimized plotting with vectorized operations"""
+def create_memory_efficient_plot(triangle, sequence_name, max_terms, quality='standard'):
+    """Memory-efficient plotting function"""
     if not triangle:
         return None
     
@@ -145,139 +165,133 @@ def create_optimized_plot(triangle, sequence_name, max_terms, dpi=100, high_qual
     max_height = len(triangle)
     total_cells = sum(len(row) for row in triangle)
     
-    # Adaptive sizing
+    # Memory-based size limits
+    if total_cells > 50000:
+        st.warning("⚠️ Large triangle detected. Rendering simplified view to prevent crashes.")
+        # Reduce triangle size for visualization
+        sample_rate = max(2, total_cells // 25000)
+        triangle = [row[::sample_rate] if len(row) > sample_rate else row for row in triangle[::sample_rate]]
+        max_width = len(triangle[0])
+        max_height = len(triangle)
+        total_cells = sum(len(row) for row in triangle)
+    
+    # Adaptive sizing based on quality
+    if quality == 'high':
+        scale_factor = 1.5
+        dpi = 150
+    elif quality == 'maximum':
+        scale_factor = 2
+        dpi = 300
+    else:  # standard
+        scale_factor = 1
+        dpi = 100
+    
+    # Cell sizing
     if max_width <= 50:
-        cell_size = 0.8
-        font_size = 10 if not high_quality else 14
+        cell_size = 0.8 * scale_factor
+        font_size = 10 * scale_factor
         show_text = True
     elif max_width <= 100:
-        cell_size = 0.6
-        font_size = 8 if not high_quality else 12
+        cell_size = 0.5 * scale_factor
+        font_size = 8 * scale_factor
         show_text = True
     elif max_width <= 200:
-        cell_size = 0.4
-        font_size = 6 if not high_quality else 10
-        show_text = True
-    elif max_width <= 400:
-        cell_size = 0.2
-        font_size = 4 if not high_quality else 8
-        show_text = max_width <= 300
+        cell_size = 0.3 * scale_factor
+        font_size = 6 * scale_factor
+        show_text = quality != 'standard'
     else:
-        cell_size = 0.1
-        font_size = 3 if not high_quality else 6
+        cell_size = 0.15 * scale_factor
+        font_size = 4 * scale_factor
         show_text = False
     
-    # Increase figure size for high quality export
-    if high_quality:
-        fig_width = min(40, max(16, max_width * cell_size))
-        fig_height = min(32, max(12, max_height * cell_size))
-    else:
-        fig_width = min(20, max(8, max_width * cell_size / 2))
-        fig_height = min(16, max(6, max_height * cell_size / 2))
+    # Figure size with memory limits
+    max_fig_size = 20 if quality == 'standard' else 30
+    fig_width = min(max_fig_size, max(8, max_width * cell_size / 2))
+    fig_height = min(max_fig_size * 0.8, max(6, max_height * cell_size / 2))
     
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    # Create figure
+    plt.ioff()  # Turn off interactive mode
+    fig = plt.figure(figsize=(fig_width, fig_height))
+    ax = fig.add_subplot(111)
     ax.set_aspect('equal')
     ax.axis('off')
     
-    # Updated colors - WHITE for 0s
+    # Colors - WHITE for 0s
     colors = {0: '#FFFFFF', 2: '#3498db', 'default': '#e74c3c'}
     
-    # Pre-allocate arrays for better performance
-    rect_patches = []
-    rect_colors = []
-    texts = []
+    # Create patches efficiently
+    patches = []
+    facecolors = []
     
-    # Vectorized rectangle creation
+    # Limit text rendering for performance
+    max_text_cells = 5000 if quality == 'standard' else 10000
+    text_count = 0
+    
     for row_idx, row in enumerate(triangle):
         if len(row) == 0:
             continue
-        
-        row_array = np.array(row)
+            
         row_width = len(row)
         start_x = (max_width - row_width) * cell_size / 2
         y_pos = (max_height - row_idx - 1) * cell_size
         
-        # Create all rectangles for this row at once
-        x_positions = start_x + np.arange(row_width) * cell_size
-        
-        for col_idx, (x_pos, value) in enumerate(zip(x_positions, row_array)):
-            color = colors.get(int(value), colors['default'])
+        for col_idx, value in enumerate(row):
+            x_pos = start_x + col_idx * cell_size
             
-            rect = Rectangle((x_pos, y_pos), cell_size, cell_size, 
-                           linewidth=max(0.1, cell_size/10))
-            rect_patches.append(rect)
-            rect_colors.append(color)
+            # Create rectangle
+            rect = Rectangle((x_pos, y_pos), cell_size, cell_size)
+            patches.append(rect)
+            facecolors.append(colors.get(int(value), colors['default']))
             
-            if show_text:
-                # For white squares (0s), use black text
+            # Add text if enabled and under limit
+            if show_text and text_count < max_text_cells:
                 text_color = 'black' if value == 0 else 'white'
-                texts.append((x_pos + cell_size/2, y_pos + cell_size/2, 
-                            str(value), text_color))
+                ax.text(x_pos + cell_size/2, y_pos + cell_size/2, str(value),
+                       ha='center', va='center', fontsize=font_size,
+                       color=text_color, weight='bold')
+                text_count += 1
     
-    # Add all rectangles at once
-    if rect_patches:
-        collection = PatchCollection(rect_patches, facecolors=rect_colors, 
-                                   edgecolors='gray', linewidths=max(0.05, cell_size/20))
-        ax.add_collection(collection)
-    
-    # Add all text at once
-    if show_text and texts:
-        for x, y, text, color in texts:
-            ax.text(x, y, text, ha='center', va='center', 
-                   fontsize=font_size, color=color, weight='bold')
+    # Add all patches at once
+    collection = PatchCollection(patches, facecolors=facecolors,
+                               edgecolors='gray', linewidths=0.5)
+    ax.add_collection(collection)
     
     # Set limits
-    padding = max(cell_size, 0.5)
+    padding = cell_size
     ax.set_xlim(-padding, max_width * cell_size + padding)
     ax.set_ylim(-padding, max_height * cell_size + padding)
     
     # Title
-    title_text = f'{sequence_name} ({max_terms} terms)'
+    title = f'{sequence_name} ({max_terms} terms) - Blue: 2s, White: 0s, Red: Others'
     if not show_text:
-        title_text += ' - Numbers hidden (too small to display)'
-    else:
-        title_text += ' - Blue: 2s, White: 0s, Red: Others'
-    
-    title_size = min(14, max(8, 100/max_width))
-    if high_quality:
-        title_size *= 1.5
-    
-    ax.set_title(title_text, fontsize=title_size, pad=15)
+        title += ' (Text hidden)'
+    ax.set_title(title, fontsize=12 * scale_factor, pad=15)
     
     plt.tight_layout()
+    
+    # Force garbage collection
+    gc.collect()
+    
     return fig
 
-def get_download_links(fig, filename_base, triangle, sequence_name, max_terms):
-    """Generate multiple download options including high-resolution"""
-    links = []
-    
-    # Standard quality (300 DPI)
-    img_buffer = io.BytesIO()
-    fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
-                facecolor='white', edgecolor='none')
-    img_buffer.seek(0)
-    img_data = base64.b64encode(img_buffer.read()).decode()
-    links.append(f'<a href="data:image/png;base64,{img_data}" download="{filename_base}_300dpi.png" class="download-link">📥 Download PNG (300 DPI)</a>')
-    
-    # High quality (600 DPI) - only for smaller triangles
-    total_cells = sum(len(row) for row in triangle)
-    if total_cells < 10000:  # Limit for performance
-        img_buffer_hq = io.BytesIO()
-        fig.savefig(img_buffer_hq, format='png', dpi=600, bbox_inches='tight',
-                    facecolor='white', edgecolor='none')
-        img_buffer_hq.seek(0)
-        img_data_hq = base64.b64encode(img_buffer_hq.read()).decode()
-        links.append(f'<a href="data:image/png;base64,{img_data_hq}" download="{filename_base}_600dpi.png" class="download-link">📥 Download PNG (600 DPI)</a>')
-    
-    # Maximum quality export button
-    max_quality_button = f"""
-    <div style="margin-top: 10px;">
-        <p style="font-size: 0.9em; color: #666;">For maximum resolution, click the button below:</p>
-    </div>
-    """
-    links.append(max_quality_button)
-    
-    return '<br>'.join(links)
+def get_image_download(fig, filename, dpi=150):
+    """Generate download link with memory management"""
+    try:
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight',
+                   facecolor='white', edgecolor='none')
+        buf.seek(0)
+        
+        # Clear the figure to free memory
+        plt.close(fig)
+        gc.collect()
+        
+        return buf
+    except MemoryError:
+        st.error("Out of memory while generating image. Try a smaller triangle or lower quality.")
+        plt.close(fig)
+        gc.collect()
+        return None
 
 # Main app
 def main():
@@ -285,28 +299,15 @@ def main():
     st.markdown('<h1 class="main-header">🔺 Recursive Difference Triangle Analyzer</h1>', 
                 unsafe_allow_html=True)
     
-    # Add custom CSS for download links
+    # Memory warning
     st.markdown("""
-    <style>
-    .download-link {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        margin: 0.25rem;
-        background-color: #3498db;
-        color: white;
-        text-decoration: none;
-        border-radius: 0.25rem;
-        transition: background-color 0.3s;
-    }
-    .download-link:hover {
-        background-color: #2980b9;
-        color: white;
-        text-decoration: none;
-    }
-    </style>
+    <div class="warning-box">
+        <strong>⚠️ Memory Usage Warning:</strong> Large triangles can cause browser crashes. 
+        Start with smaller sequences (≤100 terms) and increase gradually.
+    </div>
     """, unsafe_allow_html=True)
     
-    # Sidebar controls
+    # Sidebar
     st.sidebar.header("🎛️ Controls")
     
     # Sequence selection
@@ -315,179 +316,220 @@ def main():
         ["Prime Numbers", "Fibonacci", "Natural Numbers", "Square Numbers", "Triangular Numbers"]
     )
     
-    # Number of terms
-    max_terms = st.sidebar.number_input(
+    # Number of terms with stricter limits
+    max_terms = st.sidebar.slider(
         "Number of Terms:",
         min_value=1,
-        max_value=1000,
+        max_value=500,  # Reduced from 1000
         value=50,
         step=1,
-        help="Large sequences may be slow or crash your browser"
+        help="Start small to avoid memory issues"
     )
     
-    # Dynamic warnings
-    if max_terms <= 100:
-        st.sidebar.success("✅ Good size - fast rendering")
+    # Memory usage indicator
+    if max_terms <= 50:
+        st.sidebar.success("✅ Low memory usage")
+    elif max_terms <= 100:
+        st.sidebar.info("ℹ️ Moderate memory usage")
     elif max_terms <= 200:
-        st.sidebar.info("ℹ️ Medium size - should work fine")
-    elif max_terms <= 400:
-        st.sidebar.warning("⚠️ Large size - may be slow to render")
+        st.sidebar.warning("⚠️ High memory usage - may be slow")
     else:
-        st.sidebar.error("🚨 Very large - high risk of browser crash")
+        st.sidebar.error("🚨 Very high memory usage - risk of crash")
+    
+    # Quality settings
+    st.sidebar.header("🎨 Quality Settings")
+    render_quality = st.sidebar.radio(
+        "Render Quality:",
+        ["Standard (Fast)", "High (Slower)", "Maximum (Slowest)"],
+        index=0
+    )
+    
+    quality_map = {
+        "Standard (Fast)": "standard",
+        "High (Slower)": "high",
+        "Maximum (Slowest)": "maximum"
+    }
+    quality = quality_map[render_quality]
     
     # CSV upload
     st.sidebar.header("📁 Custom Sequence")
-    st.sidebar.markdown("""
-    **Supported CSV formats:**
-    - One number per line
-    - Comma-separated values
-    - With or without headers
-    - Mixed whitespace handling
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload CSV file (max 1000 values)", 
+        type=['csv', 'txt']
+    )
     
-    **Example formats:**
-    ```
-    1,2,3,4,5
-    ```
-    ```
-    Number
-    1
-    2
-    3
-    ```
-    """)
-    uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=['csv', 'txt'])
-    
-    # Info section
+    # Info
     with st.sidebar.expander("ℹ️ How it works"):
         st.write("""
-        **Recursive Difference Triangle:**
-        1. Start with your sequence
-        2. Take absolute differences between consecutive numbers
-        3. Repeat until you reach a single number
-        4. Forms an upside-down triangle
+        **Triangle Generation:**
+        1. Start with sequence
+        2. Calculate absolute differences
+        3. Repeat until one number remains
         
         **Colors:**
-        - 🔴 Red: Other values
         - 🔵 Blue: 2s
-        - ⚪ White: 0s
+        - ⚪ White: 0s  
+        - 🔴 Red: Other values
+        
+        **Memory Tips:**
+        - Start with small sequences
+        - Use Standard quality for large triangles
+        - Close other browser tabs
         """)
     
-    # Main content area
+    # Main content
     col1, col2 = st.columns([2, 1])
     
     with col2:
         st.header("📊 About")
         st.markdown("""
         <div class="info-box">
-        <h4>What it does</h4>
-        <p>Takes differences between consecutive numbers repeatedly to form a triangle pattern.</p>
-        
-        <h4>Colors</h4>
+        <h4>Memory-Optimized Version</h4>
+        <p>This version includes:</p>
         <ul>
-        <li><strong>Blue</strong> - Value is 2</li>
-        <li><strong>White</strong> - Value is 0</li>
-        <li><strong>Red</strong> - All other values</li>
+        <li>Automatic triangle truncation</li>
+        <li>Memory-efficient rendering</li>
+        <li>Garbage collection</li>
+        <li>Simplified visualization for large triangles</li>
         </ul>
         </div>
         """, unsafe_allow_html=True)
     
     with col1:
-        # Generate or load sequence
+        # Generate sequence
         if uploaded_file is not None:
             sequence = parse_csv_robust(uploaded_file)
             if sequence:
-                sequence = sequence[:1000]
-                sequence_name = f"Custom Data ({len(sequence)} values)"
+                sequence_name = f"Custom ({len(sequence)} values)"
                 max_terms = len(sequence)
-                st.success(f"✅ Successfully parsed {len(sequence)} values from file")
+                st.success(f"✅ Loaded {len(sequence)} values")
             else:
-                st.error("❌ Could not parse the uploaded file. Please check the format.")
-                st.info("""
-                **Supported formats:**
-                - `1,2,3,4,5` (comma-separated)
-                - `1 2 3 4 5` (space-separated)
-                - One number per line
-                - Files with headers (automatically skipped)
-                """)
+                st.error("❌ Could not parse file")
                 sequence = generate_sequence(sequence_type, max_terms)
                 sequence_name = sequence_type
         else:
             sequence = generate_sequence(sequence_type, max_terms)
             sequence_name = sequence_type
         
-        # Show sequence preview
+        # Preview
         with st.expander("🔍 Sequence Preview"):
             preview = sequence[:20]
+            preview_text = ", ".join(map(str, preview))
             if len(sequence) > 20:
-                preview_text = ", ".join(map(str, preview)) + f"... ({len(sequence)} total)"
-            else:
-                preview_text = ", ".join(map(str, preview))
+                preview_text += f"... ({len(sequence)} total)"
             st.code(preview_text)
         
-        # Generate triangle
+        # Generate triangle with memory management
         with st.spinner("🔄 Computing triangle..."):
-            triangle = compute_triangle(sequence)
-        
-        # Create visualization
-        with st.spinner("🎨 Creating visualization..."):
-            fig = create_optimized_plot(triangle, sequence_name, max_terms)
-        
-        # Display plot
-        if fig:
-            st.pyplot(fig, use_container_width=True)
+            # Limit triangle size for very large sequences
+            max_triangle_rows = 200 if max_terms > 200 else None
+            triangle = compute_triangle_memory_efficient(sequence, max_triangle_rows)
             
-            # Download options
-            filename_base = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}terms"
-            st.markdown("### 📥 Download Options")
-            st.markdown(get_download_links(fig, filename_base, triangle, sequence_name, max_terms), 
-                       unsafe_allow_html=True)
+            # Clean up
+            gc.collect()
+        
+        if triangle:
+            # Statistics first (before heavy rendering)
+            st.header("📈 Statistics")
+            cols = st.columns(4)
             
-            # Maximum quality export button
-            if st.button("🚀 Generate Maximum Quality Image (1200 DPI)", type="primary"):
-                with st.spinner("Creating ultra high-resolution image... This may take a moment."):
-                    # Create high quality version
-                    fig_hq = create_optimized_plot(triangle, sequence_name, max_terms, 
-                                                  dpi=1200, high_quality=True)
-                    if fig_hq:
-                        img_buffer_max = io.BytesIO()
-                        fig_hq.savefig(img_buffer_max, format='png', dpi=1200, 
-                                     bbox_inches='tight', facecolor='white', 
-                                     edgecolor='none')
-                        img_buffer_max.seek(0)
+            with cols[0]:
+                st.metric("Height", len(triangle))
+            with cols[1]:
+                total_cells = sum(len(row) for row in triangle)
+                st.metric("Total Cells", f"{total_cells:,}")
+            with cols[2]:
+                zero_count = sum(np.sum(row == 0) for row in triangle)
+                st.metric("Zeros", zero_count)
+            with cols[3]:
+                two_count = sum(np.sum(row == 2) for row in triangle)
+                st.metric("Twos", two_count)
+            
+            # Render visualization
+            st.header("📊 Visualization")
+            
+            # Check memory before rendering
+            if total_cells > 25000 and quality != 'standard':
+                st.warning("Large triangle detected. Switching to Standard quality to prevent crashes.")
+                quality = 'standard'
+            
+            with st.spinner("🎨 Rendering... (this may take a moment)"):
+                try:
+                    fig = create_memory_efficient_plot(triangle, sequence_name, max_terms, quality)
+                    
+                    if fig:
+                        # Display with container width
+                        st.pyplot(fig, use_container_width=True)
                         
-                        st.download_button(
-                            label="⬇️ Download Maximum Quality PNG (1200 DPI)",
-                            data=img_buffer_max,
-                            file_name=f"{filename_base}_1200dpi.png",
-                            mime="image/png"
-                        )
-                        plt.close(fig_hq)
-                
-                st.success("✅ High-resolution image generated!")
-            
-            plt.close(fig)  # Clean up memory
-        
-        # Statistics
-        st.header("📈 Triangle Statistics")
-        col_a, col_b, col_c, col_d = st.columns(4)
-        
-        with col_a:
-            st.metric("Triangle Height", len(triangle))
-        
-        with col_b:
-            total_cells = sum(len(row) for row in triangle)
-            st.metric("Total Cells", f"{total_cells:,}")
-        
-        with col_c:
-            # Count zeros in triangle
-            zero_count = sum(np.sum(row == 0) for row in triangle)
-            st.metric("Zero Values", zero_count)
-        
-        with col_d:
-            # Count twos in triangle
-            two_count = sum(np.sum(row == 2) for row in triangle)
-            st.metric("Two Values", two_count)
+                        # Download options
+                        st.header("📥 Download")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            # Standard quality
+                            buf = get_image_download(fig, "standard", dpi=150)
+                            if buf:
+                                st.download_button(
+                                    "📥 Download (150 DPI)",
+                                    data=buf,
+                                    file_name=f"triangle_{sequence_name}_{max_terms}_150dpi.png",
+                                    mime="image/png"
+                                )
+                        
+                        with col2:
+                            # High quality (only for smaller triangles)
+                            if total_cells < 10000:
+                                buf_hq = get_image_download(fig, "high", dpi=300)
+                                if buf_hq:
+                                    st.download_button(
+                                        "📥 Download (300 DPI)",
+                                        data=buf_hq,
+                                        file_name=f"triangle_{sequence_name}_{max_terms}_300dpi.png",
+                                        mime="image/png"
+                                    )
+                            else:
+                                st.info("High quality disabled for large triangles")
+                        
+                        with col3:
+                            # Maximum quality (only for small triangles)
+                            if total_cells < 5000:
+                                if st.button("🚀 Generate Max Quality"):
+                                    with st.spinner("Creating maximum quality image..."):
+                                        fig_max = create_memory_efficient_plot(
+                                            triangle, sequence_name, max_terms, 'maximum'
+                                        )
+                                        if fig_max:
+                                            buf_max = get_image_download(fig_max, "max", dpi=600)
+                                            if buf_max:
+                                                st.download_button(
+                                                    "⬇️ Download (600 DPI)",
+                                                    data=buf_max,
+                                                    file_name=f"triangle_{sequence_name}_{max_terms}_600dpi.png",
+                                                    mime="image/png"
+                                                )
+                            else:
+                                st.info("Max quality disabled for large triangles")
+                        
+                        # Cleanup
+                        plt.close('all')
+                        gc.collect()
+                        
+                except MemoryError:
+                    st.error("Out of memory! Please try:")
+                    st.write("- Reduce the number of terms")
+                    st.write("- Use Standard quality")
+                    st.write("- Close other browser tabs")
+                    st.write("- Refresh the page")
+                    plt.close('all')
+                    gc.collect()
+        else:
+            st.error("Could not generate triangle. Try fewer terms.")
 
-# Run the main app
 if __name__ == "__main__":
+    # Set memory-efficient matplotlib settings
+    plt.rcParams['figure.max_open_warning'] = 5
+    plt.rcParams['figure.autolayout'] = True
+    
+    # Run app
     main()
