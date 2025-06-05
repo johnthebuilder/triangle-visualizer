@@ -481,7 +481,7 @@ def main():
                     with st.spinner("Generating preview..."):
                         preview_fig = create_preview_plot(triangle, sequence_name, max_terms)
                         if preview_fig:
-                            st.pyplot(preview_fig, use_container_width=True)
+                            st.pyplot(preview_fig)
                             plt.close(preview_fig)
                             gc.collect()
                 
@@ -569,6 +569,4 @@ def main():
                         )
 
 if __name__ == "__main__":
-    # Streamlit config for large data
-    st.set_option('deprecation.showPyplotGlobalUse', False)
     main()
