@@ -116,13 +116,18 @@ def compute_triangle_chunked(sequence, max_rows=None):
     
     return triangle
 
-def create_pixel_array(triangle, max_pixels=4000):
+def create_pixel_array(triangle, max_pixels=4000, high_quality=False):
     """Create a pixel array representation for very large triangles"""
     if not triangle:
         return None, 1
     
     max_width = len(triangle[0])
     max_height = len(triangle)
+    
+    # For high quality, use higher resolution limits
+    if high_quality:
+        # Allow up to 16K resolution for high quality exports
+        max_pixels = min(16384, max(max_width, max_height, 8000))
     
     # Calculate scaling to fit within max_pixels constraint
     scale = 1
@@ -132,6 +137,12 @@ def create_pixel_array(triangle, max_pixels=4000):
     # Create pixel dimensions
     pixel_width = int(max_width / scale)
     pixel_height = int(max_height / scale)
+    
+    # Ensure minimum 1 pixel per cell for smaller triangles
+    if scale < 1:
+        pixel_width = max_width
+        pixel_height = max_height
+        scale = 1
     
     # Initialize pixel array (RGB)
     pixels = np.ones((pixel_height, pixel_width, 3), dtype=np.uint8) * 255
@@ -395,6 +406,17 @@ def main():
         help="Auto selects best format based on size"
     )
     
+    # PNG quality settings
+    if export_format == "PNG (Raster)" or max_terms > 1000:
+        png_quality = st.sidebar.select_slider(
+            "PNG Resolution:",
+            options=["Standard", "High", "Ultra", "Maximum"],
+            value="High",
+            help="Higher quality = larger file size"
+        )
+    else:
+        png_quality = "High"
+    
     if max_terms > 1000:
         limit_triangle = st.sidebar.checkbox(
             "Limit triangle depth",
@@ -422,15 +444,16 @@ def main():
     # Info
     with st.sidebar.expander("ℹ️ Performance Guide"):
         st.write("""
-        **Recommended limits:**
-        - SVG: Up to 500 terms
-        - Efficient SVG: 500-2000 terms
-        - PNG: 2000+ terms
+        **PNG Resolution Options:**
+        - Standard: 4K (4000×4000 max)
+        - High: 8K (8000×8000 max)
+        - Ultra: 12K (12000×12000 max)
+        - Maximum: 16K (16000×16000 max)
         
         **Why PNG for large triangles?**
         - Millions of SVG elements slow browsers
         - PNG uses efficient pixel representation
-        - Still high quality at proper resolution
+        - Still ultra-high quality at 16K resolution
         """)
     
     # Main content
@@ -583,34 +606,60 @@ def main():
                 with export_cols[1]:
                     if st.button("🖼️ Generate PNG", type="primary" if auto_format == "png" else "secondary", 
                                 use_container_width=True):
-                        with st.spinner("Creating PNG..."):
-                            # Determine appropriate resolution
-                            if total_cells < 100000:
-                                max_pixels = 4000
-                            elif total_cells < 1000000:
-                                max_pixels = 3000
-                            else:
-                                max_pixels = 2000
+                        with st.spinner("Creating high-resolution PNG..."):
+                            # Determine resolution based on quality setting
+                            quality_settings = {
+                                "Standard": {"max_pixels": 4000, "desc": "4K"},
+                                "High": {"max_pixels": 8000, "desc": "8K"}, 
+                                "Ultra": {"max_pixels": 12000, "desc": "12K"},
+                                "Maximum": {"max_pixels": 16000, "desc": "16K"}
+                            }
                             
-                            pixels, scale = create_pixel_array(triangle, max_pixels=max_pixels)
+                            settings = quality_settings.get(png_quality, quality_settings["High"])
+                            
+                            # For smaller triangles, ensure we use full resolution
+                            if max_terms < 1000:
+                                use_high_quality = True
+                            else:
+                                use_high_quality = png_quality in ["Ultra", "Maximum"]
+                            
+                            pixels, scale = create_pixel_array(
+                                triangle, 
+                                max_pixels=settings["max_pixels"],
+                                high_quality=use_high_quality
+                            )
                             
                             if pixels is not None:
                                 # Create high-quality PNG
-                                img = Image.fromarray(pixels)
+                                img = Image.fromarray(pixels, mode='RGB')
+                                
+                                # Add title to image
+                                from PIL import ImageDraw, ImageFont
+                                try:
+                                    # Try to add title
+                                    draw = ImageDraw.Draw(img)
+                                    title_text = f"{sequence_name} ({max_terms} terms) - Scale 1:{scale:.1f}"
+                                    # Use default font
+                                    draw.text((10, 10), title_text, fill=(0, 0, 0))
+                                except:
+                                    # If drawing fails, continue without title
+                                    pass
                                 
                                 # Add metadata
                                 from PIL import PngImagePlugin
                                 metadata = PngImagePlugin.PngInfo()
                                 metadata.add_text("Title", f"Triangle {sequence_name} ({max_terms} terms)")
                                 metadata.add_text("Software", "Triangle Visualizer")
-                                metadata.add_text("Description", f"Scale: 1:{scale:.1f}, Cells: {total_cells}")
+                                metadata.add_text("Description", f"Scale: 1:{scale:.1f}, Cells: {total_cells}, Quality: {png_quality}")
+                                metadata.add_text("Colors", "White=0, Blue=2, Red=Others")
                                 
-                                # Save to buffer
+                                # Save to buffer with optimization
                                 buffer = io.BytesIO()
-                                img.save(buffer, format="PNG", pnginfo=metadata, optimize=True)
+                                # Use high quality compression
+                                img.save(buffer, format="PNG", pnginfo=metadata, optimize=True, compress_level=6)
                                 buffer.seek(0)
                                 
-                                filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}.png"
+                                filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}_{settings['desc']}.png"
                                 
                                 st.download_button(
                                     "⬇️ Download PNG",
@@ -619,7 +668,14 @@ def main():
                                     mime="image/png",
                                     use_container_width=True
                                 )
-                                st.success(f"✅ PNG ready! Resolution: {img.width}×{img.height}")
+                                
+                                # Show resolution info
+                                file_size_mb = len(buffer.getvalue()) / (1024 * 1024)
+                                st.success(f"✅ PNG ready! Resolution: {img.width}×{img.height} ({settings['desc']}) - {file_size_mb:.1f} MB")
+                                
+                                # Memory warning for very large images
+                                if img.width * img.height > 50_000_000:
+                                    st.info("💡 Tip: This is a very high resolution image. Some image viewers may be slow to open it. Try IrfanView, GIMP, or Photoshop for best performance.")
                 
                 # Data export option
                 with st.expander("📊 Export Raw Data"):
