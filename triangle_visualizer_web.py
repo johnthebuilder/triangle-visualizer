@@ -12,6 +12,7 @@ import sympy
 import io
 import base64
 import gc
+from PIL import Image
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.collections import PatchCollection
@@ -33,13 +34,13 @@ st.markdown("""
         margin: 1rem 0;
         border: 1px solid #dee2e6;
     }
-    .success-box {
-        background-color: #d4edda;
+    .warning-box {
+        background-color: #fff3cd;
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 1rem 0;
-        border: 1px solid #c3e6cb;
-        color: #155724;
+        border: 1px solid #ffeeba;
+        color: #856404;
     }
     .stButton > button {
         width: 100%;
@@ -49,29 +50,27 @@ st.markdown("""
 
 @st.cache_data
 def generate_sequence(seq_type, n):
-    """Generate sequence with progress indication for large n"""
+    """Generate sequence efficiently"""
     if seq_type == "Prime Numbers":
-        # More efficient prime generation for large n
-        primes = []
-        if n > 0:
-            primes.append(2)
-        if n > 1:
-            primes.append(3)
+        # Efficient prime generation
+        if n <= 0:
+            return []
+        primes = [2]
+        if n == 1:
+            return primes
         
-        candidate = 5
-        while len(primes) < n:
-            is_prime = True
-            for p in primes:
-                if p * p > candidate:
-                    break
-                if candidate % p == 0:
-                    is_prime = False
-                    break
-            if is_prime:
-                primes.append(candidate)
-            candidate += 2
+        # Sieve for first batch of primes
+        limit = max(30, n * 15)  # Estimate
+        sieve = np.ones(limit, dtype=bool)
+        sieve[0:2] = False
         
+        for i in range(2, int(np.sqrt(limit)) + 1):
+            if sieve[i]:
+                sieve[i*i::i] = False
+        
+        primes = np.where(sieve)[0].tolist()
         return primes[:n]
+        
     elif seq_type == "Fibonacci":
         if n <= 0:
             return []
@@ -94,7 +93,7 @@ def generate_sequence(seq_type, n):
 
 @st.cache_data
 def compute_triangle_chunked(sequence, max_rows=None):
-    """Compute triangle with chunking for very large sequences"""
+    """Compute triangle with memory efficiency"""
     if not sequence:
         return []
     
@@ -102,10 +101,9 @@ def compute_triangle_chunked(sequence, max_rows=None):
     if max_rows:
         n = min(n, max_rows)
     
-    # For very large triangles, we'll compute in chunks and yield results
     triangle = []
     current = np.array(sequence, dtype=np.int64)
-    triangle.append(current.tolist())  # Convert to list to save memory
+    triangle.append(current.tolist())
     
     for i in range(1, n):
         if len(current) <= 1:
@@ -113,14 +111,62 @@ def compute_triangle_chunked(sequence, max_rows=None):
         current = np.abs(np.diff(current))
         triangle.append(current.tolist())
         
-        # Periodic garbage collection for very large triangles
         if i % 100 == 0:
             gc.collect()
     
     return triangle
 
-def create_svg_chunked(triangle, sequence_name, max_terms, chunk_size=1000):
-    """Create SVG in chunks to handle very large triangles"""
+def create_pixel_array(triangle, max_pixels=4000):
+    """Create a pixel array representation for very large triangles"""
+    if not triangle:
+        return None, 1
+    
+    max_width = len(triangle[0])
+    max_height = len(triangle)
+    
+    # Calculate scaling to fit within max_pixels constraint
+    scale = 1
+    if max_width > max_pixels:
+        scale = max_width / max_pixels
+        
+    # Create pixel dimensions
+    pixel_width = int(max_width / scale)
+    pixel_height = int(max_height / scale)
+    
+    # Initialize pixel array (RGB)
+    pixels = np.ones((pixel_height, pixel_width, 3), dtype=np.uint8) * 255
+    
+    # Colors (RGB)
+    colors = {
+        0: (255, 255, 255),  # White
+        2: (52, 152, 219),   # Blue
+        'default': (231, 76, 60)  # Red
+    }
+    
+    # Fill pixels by sampling triangle
+    for y in range(pixel_height):
+        row_idx = int(y * scale)
+        if row_idx >= len(triangle):
+            continue
+            
+        row = triangle[row_idx]
+        row_width = len(row)
+        
+        for x in range(pixel_width):
+            # Calculate position in triangle
+            triangle_x = x * scale - (max_width - row_width) / 2 / scale
+            
+            if 0 <= triangle_x < row_width:
+                col_idx = int(triangle_x)
+                if col_idx < len(row):
+                    value = row[col_idx]
+                    color = colors.get(value, colors['default'])
+                    pixels[y, x] = color
+    
+    return pixels, scale
+
+def create_efficient_svg(triangle, sequence_name, max_terms, max_cells=50000):
+    """Create an efficient SVG using run-length encoding for large triangles"""
     if not triangle:
         return None
     
@@ -128,118 +174,108 @@ def create_svg_chunked(triangle, sequence_name, max_terms, chunk_size=1000):
     max_height = len(triangle)
     total_cells = sum(len(row) for row in triangle)
     
-    # Adaptive cell size based on triangle width
-    if max_width <= 100:
-        cell_size = 10
-    elif max_width <= 500:
-        cell_size = 5
-    elif max_width <= 1000:
-        cell_size = 3
-    elif max_width <= 5000:
-        cell_size = 1.5
+    # If too many cells, sample the triangle
+    if total_cells > max_cells:
+        sample_rate = int(np.sqrt(total_cells / max_cells))
+        sampled_triangle = []
+        for i in range(0, len(triangle), sample_rate):
+            if i < len(triangle):
+                row = triangle[i]
+                sampled_row = row[::sample_rate] if len(row) > sample_rate else row
+                sampled_triangle.append(sampled_row)
+        triangle = sampled_triangle
+        max_width = max(len(row) for row in triangle) if triangle else 0
+        max_height = len(triangle)
+        is_sampled = True
     else:
-        cell_size = 1
+        is_sampled = False
+    
+    # Cell size
+    cell_size = max(1, min(10, 1000 / max_width))
     
     # SVG dimensions
     width = max_width * cell_size + 2 * cell_size
-    height = max_height * cell_size + 4 * cell_size  # Extra space for title
+    height = max_height * cell_size + 4 * cell_size
     
-    # Colors
-    colors = {0: '#FFFFFF', 2: '#3498db'}
-    default_color = '#e74c3c'
+    # Start SVG
+    svg_parts = [
+        f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">',
+        '<rect width="100%" height="100%" fill="white"/>',
+        f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold">',
+        f'{sequence_name} ({max_terms} terms) - Blue: 2s, White: 0s, Red: Others',
+    ]
     
-    # Start building SVG
-    svg_parts = []
+    if is_sampled:
+        svg_parts.append(f' [Sampled {sample_rate}x]')
     
-    # SVG header
-    svg_parts.append(f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">')
-    svg_parts.append('<rect width="100%" height="100%" fill="white"/>')
+    svg_parts.extend([
+        '</text>',
+        f'<g transform="translate({cell_size}, {2*cell_size})">'
+    ])
     
-    # Title
-    svg_parts.append(
-        f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold">'
-        f'{sequence_name} ({max_terms} terms) - Blue: 2s, White: 0s, Red: Others</text>'
-    )
-    
-    # Main group with offset for title
-    svg_parts.append(f'<g transform="translate({cell_size}, {2*cell_size})">')
-    
-    # Process triangle in chunks to avoid memory issues
-    rows_processed = 0
-    chunk_parts = []
-    
+    # Process triangle with run-length encoding
     for row_idx, row in enumerate(triangle):
-        if len(row) == 0:
+        if not row:
             continue
-        
+            
         row_width = len(row)
         start_x = (max_width - row_width) * cell_size / 2
         y_pos = row_idx * cell_size
         
-        # Build row SVG
-        row_parts = []
-        for col_idx, value in enumerate(row):
-            x_pos = start_x + col_idx * cell_size
-            color = colors.get(int(value), default_color)
+        # Run-length encode the row
+        if row:
+            runs = []
+            current_val = row[0]
+            run_start = 0
             
-            # Simple rectangle without stroke for very large triangles
-            if total_cells > 100000:
-                row_parts.append(
-                    f'<rect x="{x_pos}" y="{y_pos}" width="{cell_size}" height="{cell_size}" fill="{color}"/>'
+            for i in range(1, len(row)):
+                if row[i] != current_val:
+                    runs.append((current_val, run_start, i - run_start))
+                    current_val = row[i]
+                    run_start = i
+            runs.append((current_val, run_start, len(row) - run_start))
+            
+            # Generate rectangles for runs
+            for value, start, length in runs:
+                x_pos = start_x + start * cell_size
+                color = '#FFFFFF' if value == 0 else '#3498db' if value == 2 else '#e74c3c'
+                
+                svg_parts.append(
+                    f'<rect x="{x_pos}" y="{y_pos}" width="{length * cell_size}" '
+                    f'height="{cell_size}" fill="{color}"/>'
                 )
-            else:
-                row_parts.append(
-                    f'<rect x="{x_pos}" y="{y_pos}" width="{cell_size}" height="{cell_size}" '
-                    f'fill="{color}" stroke="gray" stroke-width="0.2"/>'
-                )
-        
-        chunk_parts.extend(row_parts)
-        rows_processed += 1
-        
-        # Write chunk to avoid memory buildup
-        if rows_processed % chunk_size == 0:
-            svg_parts.extend(chunk_parts)
-            chunk_parts = []
-            gc.collect()
     
-    # Add remaining parts
-    if chunk_parts:
-        svg_parts.extend(chunk_parts)
-    
-    # Close SVG
-    svg_parts.append('</g>')
-    svg_parts.append('</svg>')
-    
-    # Join all parts
-    svg_content = '\n'.join(svg_parts)
-    
-    return svg_content
+    svg_parts.extend(['</g>', '</svg>'])
+    return '\n'.join(svg_parts)
 
-def create_preview_plot(triangle, sequence_name, max_terms, max_preview_width=200):
-    """Create a preview plot for display - downsample if needed"""
+def create_preview_plot(triangle, sequence_name, max_terms, max_size=200):
+    """Create a matplotlib preview for reasonable-sized triangles"""
     if not triangle:
         return None
     
     max_width = len(triangle[0])
     max_height = len(triangle)
     
-    # Downsample for preview if too large
-    if max_width > max_preview_width:
-        sample_rate = max_width // max_preview_width
-        triangle_preview = []
+    # Downsample if needed
+    if max_width > max_size or max_height > max_size:
+        scale = max(max_width / max_size, max_height / max_size)
+        sample_rate = int(np.ceil(scale))
+        
+        sampled_triangle = []
         for i in range(0, len(triangle), sample_rate):
             if i < len(triangle):
                 row = triangle[i]
                 sampled_row = row[::sample_rate] if len(row) > sample_rate else row
-                triangle_preview.append(sampled_row)
-        triangle = triangle_preview
-        max_width = len(triangle[0]) if triangle else 0
+                sampled_triangle.append(sampled_row)
+        
+        triangle = sampled_triangle
+        max_width = max(len(row) for row in triangle) if triangle else 0
         max_height = len(triangle)
-        preview_text = f" (Preview - downsampled {sample_rate}x)"
+        preview_text = f" (Preview - {sample_rate}x downsampled)"
     else:
         preview_text = ""
     
-    # Create matplotlib figure for preview only
+    # Create plot
     cell_size = 0.5 if max_width > 100 else 0.8
     fig_width = min(12, max(6, max_width * cell_size / 2))
     fig_height = min(10, max(4, max_height * cell_size / 2))
@@ -282,7 +318,7 @@ def create_preview_plot(triangle, sequence_name, max_terms, max_preview_width=20
     return fig
 
 def parse_csv_robust(uploaded_file):
-    """Parse CSV file with support for large files"""
+    """Parse CSV file"""
     try:
         content = uploaded_file.read().decode('utf-8')
         lines = content.strip().split('\n')
@@ -294,11 +330,9 @@ def parse_csv_robust(uploaded_file):
             if not line:
                 continue
             
-            # Skip headers
             if any(c.isalpha() for c in line) and not line.replace(',', '').replace('.', '').replace('-', '').isdigit():
                 continue
             
-            # Parse numbers
             for delimiter in [',', ' ', '\t', ';']:
                 if delimiter in line:
                     parts = line.split(delimiter)
@@ -334,7 +368,6 @@ def main():
         ["Prime Numbers", "Fibonacci", "Natural Numbers", "Square Numbers", "Triangular Numbers"]
     )
     
-    # Larger range for ultra-scale
     max_terms = st.sidebar.number_input(
         "Number of Terms:",
         min_value=1,
@@ -344,58 +377,60 @@ def main():
     )
     
     # Scale indicator
-    if max_terms <= 100:
-        st.sidebar.success("✅ Small scale - Full preview")
-    elif max_terms <= 1000:
-        st.sidebar.info("ℹ️ Medium scale - Downsampled preview")
+    if max_terms <= 500:
+        st.sidebar.success("✅ Optimal range")
+    elif max_terms <= 2000:
+        st.sidebar.info("ℹ️ Large triangle - consider PNG export")
     elif max_terms <= 5000:
-        st.sidebar.warning("⚠️ Large scale - Heavily downsampled preview")
+        st.sidebar.warning("⚠️ Very large - PNG export recommended")
     else:
-        st.sidebar.error("🚨 Ultra scale - Minimal preview, full SVG export")
+        st.sidebar.error("🚨 Extreme size - PNG only")
     
     # Advanced settings
     st.sidebar.header("⚙️ Advanced Settings")
     
+    export_format = st.sidebar.radio(
+        "Export Format:",
+        ["Auto (Recommended)", "SVG (Vector)", "PNG (Raster)"],
+        help="Auto selects best format based on size"
+    )
+    
     if max_terms > 1000:
-        compute_full_triangle = st.sidebar.checkbox(
-            "Compute full triangle", 
-            value=True,
-            help="Uncheck to limit triangle depth for very large sequences"
+        limit_triangle = st.sidebar.checkbox(
+            "Limit triangle depth",
+            value=max_terms > 3000,
+            help="Prevents extremely deep triangles"
         )
         
-        if not compute_full_triangle:
-            max_triangle_rows = st.sidebar.slider(
-                "Maximum triangle rows:",
-                min_value=10,
-                max_value=1000,
-                value=min(500, max_terms),
-                step=10
+        if limit_triangle:
+            max_rows = st.sidebar.slider(
+                "Maximum rows:",
+                min_value=100,
+                max_value=min(2000, max_terms),
+                value=min(1000, max_terms),
+                step=100
             )
         else:
-            max_triangle_rows = None
+            max_rows = None
     else:
-        max_triangle_rows = None
+        max_rows = None
     
     # CSV upload
     st.sidebar.header("📁 Custom Sequence")
     uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=['csv', 'txt'])
     
     # Info
-    with st.sidebar.expander("ℹ️ Performance Tips"):
+    with st.sidebar.expander("ℹ️ Performance Guide"):
         st.write("""
-        **For sequences > 1000 terms:**
-        - Preview will be downsampled
-        - Full resolution in SVG export
-        - Expect longer processing times
+        **Recommended limits:**
+        - SVG: Up to 500 terms
+        - Efficient SVG: 500-2000 terms
+        - PNG: 2000+ terms
         
-        **For sequences > 5000 terms:**
-        - Use "Maximum triangle rows" option
-        - SVG export may take 30+ seconds
-        - Files will be large (10+ MB)
-        
-        **Memory saving:**
-        - Close other browser tabs
-        - Use Chrome/Firefox for best performance
+        **Why PNG for large triangles?**
+        - Millions of SVG elements slow browsers
+        - PNG uses efficient pixel representation
+        - Still high quality at proper resolution
         """)
     
     # Main content
@@ -418,9 +453,9 @@ def main():
         """, unsafe_allow_html=True)
     
     with col1:
-        # Generate or load sequence
+        # Generate sequence
         if uploaded_file is not None:
-            with st.spinner("Parsing CSV file..."):
+            with st.spinner("Parsing CSV..."):
                 sequence = parse_csv_robust(uploaded_file)
             if sequence:
                 sequence_name = f"Custom ({len(sequence)} values)"
@@ -435,7 +470,7 @@ def main():
             sequence_name = sequence_type
         
         if sequence:
-            # Preview sequence
+            # Preview
             with st.expander("🔍 Sequence Preview"):
                 preview = sequence[:50]
                 preview_text = ", ".join(map(str, preview))
@@ -444,8 +479,8 @@ def main():
                 st.code(preview_text)
             
             # Compute triangle
-            with st.spinner(f"Computing triangle for {len(sequence)} terms..."):
-                triangle = compute_triangle_chunked(sequence, max_triangle_rows)
+            with st.spinner("Computing triangle..."):
+                triangle = compute_triangle_chunked(sequence, max_rows)
                 gc.collect()
             
             if triangle:
@@ -462,7 +497,7 @@ def main():
                 with cols[2]:
                     st.metric("Width", f"{len(triangle[0]):,}")
                 
-                # Count values
+                # Count values efficiently
                 zero_count = 0
                 two_count = 0
                 other_count = 0
@@ -483,97 +518,119 @@ def main():
                 with cols[5]:
                     st.metric("Others", f"{other_count:,}")
                 
-                # Preview visualization
+                # Auto format selection
+                if export_format == "Auto (Recommended)":
+                    if total_cells < 10000:
+                        auto_format = "svg"
+                    elif total_cells < 100000:
+                        auto_format = "efficient_svg"
+                    else:
+                        auto_format = "png"
+                elif export_format == "SVG (Vector)":
+                    auto_format = "efficient_svg"
+                else:
+                    auto_format = "png"
+                
+                # Show format recommendation
+                if total_cells > 100000:
+                    st.markdown("""
+                    <div class="warning-box">
+                    <strong>⚠️ Large Triangle Detected</strong><br>
+                    PNG export is recommended for triangles with over 100,000 cells for best performance.
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Preview
                 st.header("👁️ Preview")
                 
-                if total_cells > 1000000:
-                    st.info("Triangle too large for preview. Use SVG export for full visualization.")
-                else:
+                if total_cells < 500000:
                     with st.spinner("Generating preview..."):
-                        preview_fig = create_preview_plot(triangle, sequence_name, max_terms)
-                        if preview_fig:
-                            st.pyplot(preview_fig)
-                            plt.close(preview_fig)
-                            gc.collect()
+                        fig = create_preview_plot(triangle, sequence_name, max_terms)
+                        if fig:
+                            st.pyplot(fig)
+                            plt.close(fig)
+                else:
+                    # For very large triangles, show pixel preview
+                    with st.spinner("Generating pixel preview..."):
+                        pixels, scale = create_pixel_array(triangle, max_pixels=800)
+                        if pixels is not None:
+                            img = Image.fromarray(pixels)
+                            st.image(img, caption=f"Pixel preview (scale: 1:{scale:.1f})", use_column_width=True)
                 
                 # Export section
-                st.header("📥 Export Full Resolution")
+                st.header("📥 Export Options")
                 
                 export_cols = st.columns(2)
                 
                 with export_cols[0]:
-                    st.markdown("""
-                    <div class="info-box">
-                    <h4>SVG Export Info:</h4>
-                    <p>• Full resolution export<br>
-                    • No downsampling<br>
-                    • May take time for large triangles<br>
-                    • Open in browser/Inkscape/Illustrator</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    if auto_format in ["svg", "efficient_svg"]:
+                        if st.button("🎨 Generate SVG", type="primary", use_container_width=True):
+                            with st.spinner("Creating optimized SVG..."):
+                                svg_content = create_efficient_svg(triangle, sequence_name, max_terms)
+                                
+                                if svg_content:
+                                    filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}.svg"
+                                    
+                                    st.download_button(
+                                        "⬇️ Download SVG",
+                                        data=svg_content,
+                                        file_name=filename,
+                                        mime="image/svg+xml",
+                                        use_container_width=True
+                                    )
+                                    st.success("✅ SVG ready!")
                 
                 with export_cols[1]:
-                    if st.button("🎨 Generate Full SVG", type="primary", use_container_width=True):
-                        
-                        # Progress indication for large exports
-                        if total_cells > 100000:
-                            progress_text = st.empty()
-                            progress_bar = st.progress(0)
+                    if st.button("🖼️ Generate PNG", type="primary" if auto_format == "png" else "secondary", 
+                                use_container_width=True):
+                        with st.spinner("Creating PNG..."):
+                            # Determine appropriate resolution
+                            if total_cells < 100000:
+                                max_pixels = 4000
+                            elif total_cells < 1000000:
+                                max_pixels = 3000
+                            else:
+                                max_pixels = 2000
                             
-                            progress_text.text(f"Generating SVG for {total_cells:,} cells...")
-                            progress_bar.progress(0.2)
-                        
-                        # Generate SVG
-                        try:
-                            svg_content = create_svg_chunked(triangle, sequence_name, max_terms)
+                            pixels, scale = create_pixel_array(triangle, max_pixels=max_pixels)
                             
-                            if total_cells > 100000:
-                                progress_bar.progress(0.8)
-                            
-                            if svg_content:
-                                # Prepare download
-                                filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}terms.svg"
+                            if pixels is not None:
+                                # Create high-quality PNG
+                                img = Image.fromarray(pixels)
+                                
+                                # Add metadata
+                                from PIL import PngImagePlugin
+                                metadata = PngImagePlugin.PngInfo()
+                                metadata.add_text("Title", f"Triangle {sequence_name} ({max_terms} terms)")
+                                metadata.add_text("Software", "Triangle Visualizer")
+                                metadata.add_text("Description", f"Scale: 1:{scale:.1f}, Cells: {total_cells}")
+                                
+                                # Save to buffer
+                                buffer = io.BytesIO()
+                                img.save(buffer, format="PNG", pnginfo=metadata, optimize=True)
+                                buffer.seek(0)
+                                
+                                filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}.png"
                                 
                                 st.download_button(
-                                    "⬇️ Download SVG",
-                                    data=svg_content,
+                                    "⬇️ Download PNG",
+                                    data=buffer,
                                     file_name=filename,
-                                    mime="image/svg+xml",
+                                    mime="image/png",
                                     use_container_width=True
                                 )
-                                
-                                if total_cells > 100000:
-                                    progress_bar.progress(1.0)
-                                    progress_text.text("✅ SVG generated successfully!")
-                                
-                                st.success(f"✅ SVG ready! File size: ~{len(svg_content)/(1024*1024):.1f} MB")
-                                
-                                # Cleanup
-                                gc.collect()
-                                
-                        except Exception as e:
-                            st.error(f"Error generating SVG: {str(e)}")
-                            st.info("Try reducing the number of terms or limiting triangle depth.")
+                                st.success(f"✅ PNG ready! Resolution: {img.width}×{img.height}")
                 
-                # Additional export options
-                with st.expander("🔧 Alternative Export Options"):
-                    st.write("""
-                    **For extremely large triangles that still cause issues:**
-                    
-                    1. **Limit triangle depth** - Use the checkbox in Advanced Settings
-                    2. **Export data as CSV** - Process with external tools
-                    3. **Use a dedicated visualization tool** - Export the raw triangle data
-                    """)
-                    
-                    if st.button("📊 Export Triangle Data as CSV"):
-                        # Export raw triangle data
+                # Data export option
+                with st.expander("📊 Export Raw Data"):
+                    if st.button("Export Triangle as CSV"):
                         csv_lines = []
-                        for i, row in enumerate(triangle):
+                        for row in triangle:
                             csv_lines.append(",".join(map(str, row)))
                         csv_content = "\n".join(csv_lines)
                         
                         st.download_button(
-                            "⬇️ Download Triangle Data (CSV)",
+                            "⬇️ Download Triangle Data",
                             data=csv_content,
                             file_name=f"triangle_data_{sequence_name}_{max_terms}.csv",
                             mime="text/csv"
