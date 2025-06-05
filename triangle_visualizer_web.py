@@ -130,10 +130,8 @@ def create_pixel_array(triangle, max_pixels=4000, high_quality=False):
         max_pixels = min(16384, max(max_width, max_height, 8000))
     
     # Calculate scaling to fit within max_pixels constraint
-    scale = 1
-    if max_width > max_pixels:
-        scale = max_width / max_pixels
-        
+    scale = max(1, max(max_width, max_height) / max_pixels)
+    
     # Create pixel dimensions
     pixel_width = int(max_width / scale)
     pixel_height = int(max_height / scale)
@@ -144,35 +142,41 @@ def create_pixel_array(triangle, max_pixels=4000, high_quality=False):
         pixel_height = max_height
         scale = 1
     
-    # Initialize pixel array (RGB)
+    # Initialize pixel array (RGB) - start with white background
     pixels = np.ones((pixel_height, pixel_width, 3), dtype=np.uint8) * 255
     
     # Colors (RGB)
     colors = {
-        0: (255, 255, 255),  # White
-        2: (52, 152, 219),   # Blue
-        'default': (231, 76, 60)  # Red
+        0: np.array([255, 255, 255], dtype=np.uint8),  # White
+        2: np.array([52, 152, 219], dtype=np.uint8),   # Blue
+        'default': np.array([231, 76, 60], dtype=np.uint8)  # Red
     }
     
-    # Fill pixels by sampling triangle
-    for y in range(pixel_height):
-        row_idx = int(y * scale)
-        if row_idx >= len(triangle):
+    # Process each pixel
+    for py in range(pixel_height):
+        # Calculate which row in the triangle this pixel represents
+        triangle_y = int(py * scale)
+        
+        if triangle_y >= len(triangle):
             continue
             
-        row = triangle[row_idx]
+        row = triangle[triangle_y]
         row_width = len(row)
         
-        for x in range(pixel_width):
-            # Calculate position in triangle
-            triangle_x = x * scale - (max_width - row_width) / 2 / scale
+        # Calculate the starting position for this row (centering)
+        row_start_x = (max_width - row_width) / 2.0
+        
+        for px in range(pixel_width):
+            # Calculate which column in the triangle this pixel represents
+            triangle_x = px * scale
             
-            if 0 <= triangle_x < row_width:
-                col_idx = int(triangle_x)
-                if col_idx < len(row):
-                    value = row[col_idx]
-                    color = colors.get(value, colors['default'])
-                    pixels[y, x] = color
+            # Check if this pixel is within the row bounds
+            col_idx = int(triangle_x - row_start_x)
+            
+            if 0 <= col_idx < row_width:
+                value = row[col_idx]
+                color = colors.get(value, colors['default'])
+                pixels[py, px] = color
     
     return pixels, scale
 
@@ -578,7 +582,7 @@ def main():
                         pixels, scale = create_pixel_array(triangle, max_pixels=800)
                         if pixels is not None:
                             img = Image.fromarray(pixels)
-                            st.image(img, caption=f"Pixel preview (scale: 1:{scale:.1f})", use_column_width=True)
+                            st.image(img, caption=f"Pixel preview (scale: 1:{scale:.1f})")
                 
                 # Export section
                 st.header("📥 Export Options")
