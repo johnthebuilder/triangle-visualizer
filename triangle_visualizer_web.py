@@ -326,13 +326,6 @@ def main():
     st.markdown('<h1 class="main-header">🔺 Recursive Difference Triangle Analyzer</h1>', 
                 unsafe_allow_html=True)
     
-    st.markdown("""
-    <div class="success-box">
-        <strong>✨ Ultra-Scale Edition:</strong> Optimized to handle triangles with 10,000+ terms! 
-        Uses efficient SVG generation and chunked processing.
-    </div>
-    """, unsafe_allow_html=True)
-    
     # Sidebar
     st.sidebar.header("🎛️ Controls")
     
@@ -409,16 +402,17 @@ def main():
     col1, col2 = st.columns([3, 1])
     
     with col2:
-        st.header("📊 Capabilities")
+        st.header("📊 About")
         st.markdown("""
         <div class="info-box">
-        <h4>This version handles:</h4>
+        <h4>What it does</h4>
+        <p>Takes differences between consecutive numbers repeatedly to form a triangle pattern.</p>
+        
+        <h4>Colors</h4>
         <ul>
-        <li>✅ Up to 10,000 terms</li>
-        <li>✅ Millions of cells</li>
-        <li>✅ Chunked SVG generation</li>
-        <li>✅ Memory-efficient processing</li>
-        <li>✅ Downsampled previews</li>
+        <li><strong>Blue</strong> - Value is 2</li>
+        <li><strong>White</strong> - Value is 0</li>
+        <li><strong>Red</strong> - All other values</li>
         </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -457,7 +451,7 @@ def main():
             if triangle:
                 # Statistics
                 st.header("📈 Statistics")
-                cols = st.columns(4)
+                cols = st.columns(6)
                 
                 total_cells = sum(len(row) for row in triangle)
                 
@@ -467,10 +461,27 @@ def main():
                     st.metric("Total Cells", f"{total_cells:,}")
                 with cols[2]:
                     st.metric("Width", f"{len(triangle[0]):,}")
+                
+                # Count values
+                zero_count = 0
+                two_count = 0
+                other_count = 0
+                
+                for row in triangle:
+                    for value in row:
+                        if value == 0:
+                            zero_count += 1
+                        elif value == 2:
+                            two_count += 1
+                        else:
+                            other_count += 1
+                
                 with cols[3]:
-                    # Estimate file size
-                    est_size_mb = (total_cells * 100) / (1024 * 1024)  # ~100 bytes per cell
-                    st.metric("Est. SVG Size", f"{est_size_mb:.1f} MB")
+                    st.metric("Zeros", f"{zero_count:,}")
+                with cols[4]:
+                    st.metric("Twos", f"{two_count:,}")
+                with cols[5]:
+                    st.metric("Others", f"{other_count:,}")
                 
                 # Preview visualization
                 st.header("👁️ Preview")
