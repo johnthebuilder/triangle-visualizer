@@ -124,10 +124,10 @@ def create_pixel_array(triangle, max_pixels=4000, high_quality=False):
     max_width = len(triangle[0])
     max_height = len(triangle)
     
-    # For high quality, use higher resolution limits
+    # For high quality, use MUCH higher resolution limits
     if high_quality:
-        # Allow up to 16K resolution for high quality exports
-        max_pixels = min(16384, max(max_width, max_height, 8000))
+        # Allow up to 32K resolution for high quality exports
+        max_pixels = min(32768, max(max_width * 2, max_height * 2, 16000))
     
     # Calculate scaling to fit within max_pixels constraint
     scale = max(1, max(max_width, max_height) / max_pixels)
@@ -137,10 +137,11 @@ def create_pixel_array(triangle, max_pixels=4000, high_quality=False):
     pixel_height = int(max_height / scale)
     
     # Ensure minimum 1 pixel per cell for smaller triangles
+    # For high quality, try to use at least 2 pixels per cell if possible
     if scale < 1:
-        pixel_width = max_width
-        pixel_height = max_height
-        scale = 1
+        pixel_width = max_width * (2 if high_quality else 1)
+        pixel_height = max_height * (2 if high_quality else 1)
+        scale = 1 / (2 if high_quality else 1)
     
     # Initialize pixel array (RGB) - start with white background
     pixels = np.ones((pixel_height, pixel_width, 3), dtype=np.uint8) * 255
@@ -414,9 +415,9 @@ def main():
     if export_format == "PNG (Raster)" or max_terms > 1000:
         png_quality = st.sidebar.select_slider(
             "PNG Resolution:",
-            options=["Standard", "High", "Ultra", "Maximum"],
+            options=["Standard", "High", "Ultra", "Maximum", "Extreme", "Ultimate"],
             value="High",
-            help="Higher quality = larger file size"
+            help="Higher quality = larger file size & longer processing"
         )
     else:
         png_quality = "High"
@@ -616,16 +617,20 @@ def main():
                                 "Standard": {"max_pixels": 4000, "desc": "4K"},
                                 "High": {"max_pixels": 8000, "desc": "8K"}, 
                                 "Ultra": {"max_pixels": 12000, "desc": "12K"},
-                                "Maximum": {"max_pixels": 16000, "desc": "16K"}
+                                "Maximum": {"max_pixels": 16000, "desc": "16K"},
+                                "Extreme": {"max_pixels": 24000, "desc": "24K"},
+                                "Ultimate": {"max_pixels": 32000, "desc": "32K"}
                             }
                             
                             settings = quality_settings.get(png_quality, quality_settings["High"])
                             
                             # For smaller triangles, ensure we use full resolution
-                            if max_terms < 1000:
-                                use_high_quality = True
-                            else:
-                                use_high_quality = png_quality in ["Ultra", "Maximum"]
+                            # For Ultimate quality, always use high quality mode
+                            use_high_quality = png_quality in ["Maximum", "Extreme", "Ultimate"] or max_terms < 2000
+                            
+                            # Show warning for extreme resolutions
+                            if png_quality in ["Extreme", "Ultimate"]:
+                                st.warning("⚠️ Extreme resolution selected. This may take several minutes and produce very large files (100+ MB).")
                             
                             pixels, scale = create_pixel_array(
                                 triangle, 
@@ -637,30 +642,39 @@ def main():
                                 # Create high-quality PNG
                                 img = Image.fromarray(pixels, mode='RGB')
                                 
-                                # Add title to image
-                                from PIL import ImageDraw, ImageFont
-                                try:
-                                    # Try to add title
-                                    draw = ImageDraw.Draw(img)
-                                    title_text = f"{sequence_name} ({max_terms} terms) - Scale 1:{scale:.1f}"
-                                    # Use default font
-                                    draw.text((10, 10), title_text, fill=(0, 0, 0))
-                                except:
-                                    # If drawing fails, continue without title
-                                    pass
+                                # Add title to image for extreme resolutions
+                                if png_quality in ["Extreme", "Ultimate"]:
+                                    from PIL import ImageDraw
+                                    try:
+                                        draw = ImageDraw.Draw(img)
+                                        # Add title with larger font for high res
+                                        title_text = f"{sequence_name} ({max_terms} terms) - {settings['desc']} Resolution"
+                                        # Position title based on image size
+                                        title_y = min(50, img.height // 100)
+                                        draw.text((img.width // 20, title_y), title_text, fill=(100, 100, 100))
+                                    except:
+                                        pass
                                 
                                 # Add metadata
                                 from PIL import PngImagePlugin
                                 metadata = PngImagePlugin.PngInfo()
                                 metadata.add_text("Title", f"Triangle {sequence_name} ({max_terms} terms)")
-                                metadata.add_text("Software", "Triangle Visualizer")
-                                metadata.add_text("Description", f"Scale: 1:{scale:.1f}, Cells: {total_cells}, Quality: {png_quality}")
+                                metadata.add_text("Software", "Triangle Visualizer - Ultra High Resolution")
+                                metadata.add_text("Description", f"Scale: 1:{scale:.2f}, Cells: {total_cells:,}, Quality: {png_quality} ({settings['desc']})")
                                 metadata.add_text("Colors", "White=0, Blue=2, Red=Others")
+                                metadata.add_text("Resolution", f"{img.width}x{img.height} pixels")
                                 
                                 # Save to buffer with optimization
                                 buffer = io.BytesIO()
-                                # Use high quality compression
-                                img.save(buffer, format="PNG", pnginfo=metadata, optimize=True, compress_level=6)
+                                
+                                # Use lower compression for extreme resolutions to save time
+                                compress_level = 9 if png_quality in ["Standard", "High"] else 6
+                                
+                                # Progress message for large images
+                                if img.width * img.height > 100_000_000:
+                                    st.info("Compressing image... This may take a minute for extreme resolutions.")
+                                
+                                img.save(buffer, format="PNG", pnginfo=metadata, optimize=True, compress_level=compress_level)
                                 buffer.seek(0)
                                 
                                 filename = f"triangle_{sequence_name.lower().replace(' ', '_')}_{max_terms}_{settings['desc']}.png"
@@ -675,11 +689,31 @@ def main():
                                 
                                 # Show resolution info
                                 file_size_mb = len(buffer.getvalue()) / (1024 * 1024)
-                                st.success(f"✅ PNG ready! Resolution: {img.width}×{img.height} ({settings['desc']}) - {file_size_mb:.1f} MB")
+                                total_pixels = img.width * img.height
+                                megapixels = total_pixels / 1_000_000
+                                
+                                st.success(f"✅ PNG ready! Resolution: {img.width:,}×{img.height:,} ({megapixels:.1f} MP, {settings['desc']}) - {file_size_mb:.1f} MB")
+                                
+                                # Detailed stats for extreme resolutions
+                                if png_quality in ["Extreme", "Ultimate"]:
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Megapixels", f"{megapixels:.1f} MP")
+                                    with col2:
+                                        st.metric("File Size", f"{file_size_mb:.1f} MB")
+                                    with col3:
+                                        if scale < 1:
+                                            st.metric("Pixels per Cell", f"{1/scale:.1f}")
+                                        else:
+                                            st.metric("Cells per Pixel", f"{scale:.1f}")
                                 
                                 # Memory warning for very large images
-                                if img.width * img.height > 50_000_000:
-                                    st.info("💡 Tip: This is a very high resolution image. Some image viewers may be slow to open it. Try IrfanView, GIMP, or Photoshop for best performance.")
+                                if total_pixels > 200_000_000:
+                                    st.info("💡 **Viewing Tips for Ultra-High Resolution Images:**\n"
+                                           "- Use 64-bit image viewers (IrfanView 64-bit, GIMP, Photoshop)\n"
+                                           "- Ensure you have sufficient RAM (8+ GB recommended)\n"
+                                           "- Some web browsers may struggle with images this large\n"
+                                           "- Consider using image pyramiding software for smooth zooming")
                 
                 # Data export option
                 with st.expander("📊 Export Raw Data"):
